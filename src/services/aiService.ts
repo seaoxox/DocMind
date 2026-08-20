@@ -1,4 +1,4 @@
-import type { AppDocument, Citation, ProviderSettings } from '../types';
+import type { Citation, ProviderSettings, RetrievedChunk } from '../types';
 
 export interface AskResult {
   answer: string;
@@ -6,7 +6,7 @@ export interface AskResult {
   raw?: string;
 }
 
-const SYSTEM_PROMPT = `You are a document assistant. Your task is to answer questions based STRICTLY on the provided context documents.
+const SYSTEM_PROMPT = `You are a document assistant. Your task is to answer questions based STRICTLY on the provided context passages.
 If the answer is not contained in the context, clearly say you don't know based on the provided documents. Do not fabricate information.
 
 Formatting Rules:
@@ -16,27 +16,23 @@ Formatting Rules:
 {
   "answer": "The full text answer here, in Markdown.",
   "citations": [
-    { "text": "The EXACT ORIGINAL QUOTATION from the document context that supports this part of the answer", "source": "The name of the Document" }
+    { "text": "The EXACT ORIGINAL QUOTATION from the context that supports this part of the answer", "source": "The name of the source document" }
   ]
 }`;
 
-function buildContext(docs: AppDocument[]): string {
-  return docs
-    .map((d) => `[Document: ${d.name}]\n${d.content}`)
-    .join('\n\n---\n\n');
+function buildContext(chunks: RetrievedChunk[]): string {
+  return chunks.map((c) => `[Document: ${c.source}]\n${c.text}`).join('\n\n---\n\n');
 }
 
-function buildUserPrompt(question: string, docs: AppDocument[]): string {
-  const context = buildContext(docs);
-  return `Context:\n${context}\n\n---\n\nQuestion: ${question}`;
+function buildUserPrompt(question: string, chunks: RetrievedChunk[]): string {
+  return `Context (retrieved passages, most relevant first):\n${buildContext(chunks)}\n\n---\n\nQuestion: ${question}`;
 }
 
-/** Try to safely parse a JSON answer, tolerating stray markdown fences or prose around it. */
+/** Safely parse a JSON answer, tolerating stray markdown fences or prose around it. */
 function safeParseAnswer(text: string): AskResult {
   let cleaned = text.trim();
   cleaned = cleaned.replace(/^```(?:json)?/i, '').replace(/```$/, '').trim();
 
-  // Try to locate the outermost JSON object if there's extra text around it.
   const firstBrace = cleaned.indexOf('{');
   const lastBrace = cleaned.lastIndexOf('}');
   const candidate = firstBrace !== -1 && lastBrace !== -1 ? cleaned.slice(firstBrace, lastBrace + 1) : cleaned;
@@ -60,19 +56,14 @@ function safeParseAnswer(text: string): AskResult {
   return { answer: text, citations: [], raw: text };
 }
 
-async function callGemini(
-  settings: ProviderSettings,
-  question: string,
-  docs: AppDocument[]
-): Promise<AskResult> {
-  const model = settings.model || 'gemini-2.5-flash';
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(
+async function callGemini(settings: ProviderSettings, question: string, chunks: RetrievedChunk[]): Promise<AskResult> {
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${settings.model}:generateContent?key=${encodeURIComponent(
     settings.apiKey
   )}`;
 
   const body = {
     systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
-    contents: [{ role: 'user', parts: [{ text: buildUserPrompt(question, docs) }] }],
+    contents: [{ role: 'user', parts: [{ text: buildUserPrompt(question, chunks) }] }],
     generationConfig: { responseMimeType: 'application/json' },
   };
 
@@ -93,19 +84,14 @@ async function callGemini(
   return safeParseAnswer(text);
 }
 
-async function callOpenAI(
-  settings: ProviderSettings,
-  question: string,
-  docs: AppDocument[]
-): Promise<AskResult> {
-  const model = settings.model || 'gpt-4o-mini';
+async function callOpenAI(settings: ProviderSettings, question: string, chunks: RetrievedChunk[]): Promise<AskResult> {
   const url = 'https://api.openai.com/v1/chat/completions';
 
   const body = {
-    model,
+    model: settings.model,
     messages: [
       { role: 'system', content: SYSTEM_PROMPT },
-      { role: 'user', content: buildUserPrompt(question, docs) },
+      { role: 'user', content: buildUserPrompt(question, chunks) },
     ],
     response_format: { type: 'json_object' },
   };
@@ -130,19 +116,14 @@ async function callOpenAI(
   return safeParseAnswer(text);
 }
 
-async function callAnthropic(
-  settings: ProviderSettings,
-  question: string,
-  docs: AppDocument[]
-): Promise<AskResult> {
-  const model = settings.model || 'claude-sonnet-4-6';
+async function callAnthropic(settings: ProviderSettings, question: string, chunks: RetrievedChunk[]): Promise<AskResult> {
   const url = 'https://api.anthropic.com/v1/messages';
 
   const body = {
-    model,
+    model: settings.model,
     max_tokens: 4096,
     system: SYSTEM_PROMPT,
-    messages: [{ role: 'user', content: buildUserPrompt(question, docs) }],
+    messages: [{ role: 'user', content: buildUserPrompt(question, chunks) }],
   };
 
   const res = await fetch(url, {
@@ -162,37 +143,28 @@ async function callAnthropic(
   }
 
   const data = await res.json();
-  const text: string = data?.content?.map((b: { type: string; text?: string }) => (b.type === 'text' ? b.text ?? '' : '')).join('') ?? '';
+  const text: string =
+    data?.content?.map((b: { type: string; text?: string }) => (b.type === 'text' ? b.text ?? '' : '')).join('') ?? '';
   if (!text) throw new Error('Anthropic 未回傳任何內容，請確認模型名稱與 API Key 是否正確。');
   return safeParseAnswer(text);
 }
 
-export async function askQuestion(
-  settings: ProviderSettings,
-  question: string,
-  docs: AppDocument[]
-): Promise<AskResult> {
+export async function askQuestion(settings: ProviderSettings, question: string, chunks: RetrievedChunk[]): Promise<AskResult> {
   if (!settings.apiKey.trim()) {
     throw new Error('請先在「設定」中輸入您的 API Key。');
   }
-  if (docs.length === 0) {
-    throw new Error('請先勾選至少一份文件再提問。');
+  if (chunks.length === 0) {
+    throw new Error('向量索引中找不到相關段落，請確認指引文件是否已建立索引完成。');
   }
 
   switch (settings.provider) {
     case 'gemini':
-      return callGemini(settings, question, docs);
+      return callGemini(settings, question, chunks);
     case 'openai':
-      return callOpenAI(settings, question, docs);
+      return callOpenAI(settings, question, chunks);
     case 'anthropic':
-      return callAnthropic(settings, question, docs);
+      return callAnthropic(settings, question, chunks);
     default:
       throw new Error('未知的 AI 供應商');
   }
 }
-
-export const DEFAULT_MODELS: Record<ProviderSettings['provider'], string> = {
-  gemini: 'gemini-2.5-flash',
-  openai: 'gpt-4o-mini',
-  anthropic: 'claude-sonnet-4-6',
-};

@@ -1,16 +1,20 @@
-# DocMind Q&A（純前端版）
+# DocMind Q&A（純前端・向量檢索版）
 
-智慧指引文件問答與手冊瀏覽系統。**完全前端（無後端伺服器）**，文件解析在瀏覽器本機完成，AI 問答直接呼叫您自備的
+智慧指引文件問答與手冊瀏覽系統。**完全前端（無後端伺服器）**，文件解析、向量嵌入與語意搜尋皆在瀏覽器本機完成，AI 問答則直接呼叫您自備的
 Gemini／OpenAI／Anthropic API Key，可直接部署於 **GitHub Pages** 這類純靜態託管服務。
 
 ## 功能
-- 指引問答模式：雙下拉勾選「主要指引文件」與「額外／補充指引文件」，向 AI 提問，取得嚴格依據文件內容、附精確引用出處（JSON citations）的回答。
-- 支援 Word（.docx）、PDF、Markdown（.md）、純文字（.txt）文件，全部在瀏覽器端解析（`mammoth` / `pdfjs-dist`）。
-- 使用者可直接上傳自己的文件（不需重新部署），也可在 repo 中預先放入「內建文件」供所有訪客使用。
-- 指引文件模式：以章節瀏覽結構化的 Markdown 手冊（含圖片）。
-- 對話歷史紀錄（存於瀏覽器 localStorage）、深色／淺色主題切換、每日免責聲明（以 Asia/Taipei 時區判斷）。
-- 響應式介面：桌面雙欄佈局／手機單欄 + 抽屜 + 分頁切換。
-- AI 供應商可切換：Google Gemini、OpenAI、Anthropic Claude，API Key 僅存於您瀏覽器的 localStorage，不會經過任何第三方伺服器。
+- **語意向量搜尋（RAG）**：不需手動勾選文件。系統會在首次載入時，使用 Hugging Face 的
+  [`Xenova/paraphrase-multilingual-MiniLM-L12-v2`](https://huggingface.co/Xenova/paraphrase-multilingual-MiniLM-L12-v2)
+  多語言嵌入模型（透過 `@huggingface/transformers`，在瀏覽器內以 WASM/ONNX Runtime 執行），將指引文件切割成段落並轉換為向量，儲存於瀏覽器的
+  **IndexedDB** 本機資料庫。之後每次提問，系統會將問題轉為向量、計算與所有段落的餘弦相似度，取出最相關的段落作為 AI
+  回答的依據，並提供精確引用出處。
+- 支援 Word（.docx）、PDF、Markdown（.md）、純文字（.txt）指引文件，解析與切段皆在瀏覽器端完成。
+- 指引文件模式：以資料夾／檔案卡片瀏覽結構化的手冊內容，並可直接檢視 Markdown／文字內容。
+- 對話歷史紀錄（存於瀏覽器 localStorage）、深色／淺色主題切換、每日安全使用提示（以 Asia/Taipei 時區判斷）。
+- 響應式介面：桌面雙欄佈局／手機單欄 + 底部輸入列。
+- AI 供應商與模型皆可下拉選擇：Google Gemini、OpenAI、Anthropic Claude，各自提供「快速」與「基礎」兩種目前公開的模型層級。
+  API Key 僅存於您瀏覽器的 localStorage，不會經過任何第三方伺服器。
 
 ## 本機開發
 
@@ -19,14 +23,13 @@ npm install
 npm run dev
 ```
 
-## 加入內建（預設）文件（選用）
+## 放置指引文件
 
-如果您想讓所有訪客一開啟網站就有預設文件可用（不需自行上傳），將檔案放入對應資料夾：
+將要納入問答與向量索引的文件放入：
 
 ```
-public/instruction_files/        # 主要指引文件（.docx / .pdf / .md / .txt）
-public/sub_instruction_files/    # 額外／補充指引文件
-public/manual_md/<章節資料夾>/<章節>.md   # 手冊章節（可含同資料夾內的圖片，於 md 中以相對路徑引用）
+public/guidance_docs/                      # 指引文件（.docx / .pdf / .md / .txt），會自動切段並建立向量索引
+public/manual_md/<章節資料夾>/<章節>.md      # 手冊章節（可含同資料夾內的圖片），供「指引文件」模式瀏覽，同時也會併入向量索引
 ```
 
 接著執行（`npm run dev` 與 `npm run build` 都會自動執行這一步）：
@@ -35,10 +38,11 @@ public/manual_md/<章節資料夾>/<章節>.md   # 手冊章節（可含同資�
 npm run manifest
 ```
 
-此指令會掃描上述資料夾並產生 `public/manifest.json`，前端會在啟動時讀取它並自動載入這些文件。
-專案已內附一份範例主要指引文件與一個範例手冊章節，可直接刪除或替換。
+此指令會掃描上述資料夾並產生 `public/manifest.json`，前端會在啟動時讀取它、載入文件內容，並自動建立向量索引。
+專案已內附一份範例指引文件與一個範例手冊章節，可直接刪除或替換。
 
-> 若不需要內建文件，保持資料夾為空即可；使用者仍可在介面中自行上傳文件使用。
+> 系統不再提供使用者上傳文件的介面；所有可供問答的內容皆須在建置前放入 `guidance_docs` / `manual_md`
+> 並重新部署。文件內容變動後，系統會自動偵測（以檔名＋內容長度計算指紋）並重新建立索引；也可在左上角「功能選單」中手動點選「重建向量索引」。
 
 ## 部署到 GitHub Pages
 
@@ -59,38 +63,45 @@ VITE_BASE_PATH=/your-repo-name/ npm run build
 # 將 dist/ 內容推送到 gh-pages 分支，或於 Settings → Pages 指定 dist 為發布來源
 ```
 
-## 使用者如何設定 API Key
+## 使用者如何設定 API Key 與模型
 
-1. 開啟網站後，點右上角「設定（齒輪圖示）」。
+1. 開啟網站後，點左上角「功能選單」→「AI 供應商設定」。
 2. 選擇 AI 供應商（Gemini / OpenAI / Anthropic），貼上您自己的 API Key。
    - Gemini：https://aistudio.google.com/apikey
    - OpenAI：https://platform.openai.com/api-keys
    - Anthropic：https://console.anthropic.com/settings/keys
-3. （選用）填入自訂模型名稱，留空則使用預設模型。
-4. 儲存後即可在「指引問答」頁面提問。
+3. 從下拉選單選擇模型層級：「快速」（回應更即時、成本較低）或「基礎」（推理品質較佳）。
+4. 儲存後即可在「指引問答」頁面提問，系統會自動搜尋最相關的指引文件段落作答。
 
 > **注意**：Anthropic 的 Messages API 是否允許瀏覽器直接呼叫（CORS）依帳戶與網域設定而異，
 > 若呼叫失敗，建議優先使用 Gemini 或 OpenAI，皆已在瀏覽器環境測試可正常運作。
+>
+> 嵌入模型（約 100+ MB）僅在首次使用時下載並由瀏覽器快取，之後開啟網站會直接使用快取，不需重新下載。
 
 ## 專案結構
 
 ```
 src/
-  components/        # UI 元件（文件選擇器、回答/引用面板、設定、手冊瀏覽…）
+  components/        # UI 元件（滑出選單、回答/引用、設定、手冊瀏覽、索引狀態…）
   services/
-    docParser.ts      # 瀏覽器端 docx/pdf/md/txt 解析
-    aiService.ts       # 多供應商 AI 呼叫與 JSON citation 解析
-    manifest.ts         # 讀取 public/manifest.json
-    storage.ts            # localStorage 存取（設定/歷史/主題/免責聲明）
+    docParser.ts       # 瀏覽器端 docx/pdf/md/txt 解析（僅供讀取 public/ 內建文件）
+    chunking.ts          # 文件切段
+    embeddingService.ts    # 呼叫 Hugging Face 模型計算向量（@huggingface/transformers）
+    vectorStore.ts           # IndexedDB 向量儲存
+    ragPipeline.ts             # 索引建立/偵測變更 + 語意搜尋（cosine similarity）
+    aiService.ts                 # 依搜尋結果組裝 context，呼叫所選 AI 供應商並解析 JSON citation
+    models.ts                      # 各供應商「快速/基礎」模型清單
+    manifest.ts                      # 讀取 public/manifest.json
+    storage.ts                         # localStorage 存取（設定/歷史/主題/提示日期）
   types.ts
   App.tsx
 scripts/
   generate-manifest.mjs   # 建置前掃描 public/ 內建文件並產生 manifest.json
 public/
-  instruction_files/、sub_instruction_files/、manual_md/   # 內建文件（選用）
+  guidance_docs/、manual_md/   # 指引文件（選用，用於向量索引與手冊瀏覽）
 ```
 
 ## 資料隱私說明
 
-所有文件解析皆於使用者瀏覽器本機完成，不會上傳到任何伺服器。使用者勾選文件之文字內容與提問內容，
-只會直接傳送至使用者自行設定之 AI 供應商官方 API（並附帶使用者自己的 API Key），本專案本身不經手、不儲存任何內容。
+文件解析、切段與向量嵌入皆於使用者瀏覽器本機完成（向量儲存於 IndexedDB），不會上傳到任何伺服器。提問時，只有語意搜尋到的相關段落與提問內容，
+會直接傳送至使用者自行設定之 AI 供應商官方 API（並附帶使用者自己的 API Key），本專案本身不經手、不儲存任何內容。

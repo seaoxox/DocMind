@@ -1,6 +1,6 @@
-// Scans public/instruction_files, public/sub_instruction_files, and public/manual_md
-// and writes public/manifest.json, which the front end fetches at runtime to know
-// which bundled default documents are available as static files.
+// Scans public/guidance_docs and public/manual_md and writes public/manifest.json,
+// which the front end fetches at runtime to know which bundled documents are
+// available as static files (used to build the local vector index).
 //
 // Run automatically via `npm run build` (see package.json "prebuild" script),
 // or manually with `node scripts/generate-manifest.mjs`.
@@ -51,14 +51,12 @@ function buildManualStructure() {
 }
 
 const manifest = {
-  instructionFiles: listFiles(join(PUBLIC, 'instruction_files')).sort(),
-  subInstructionFiles: listFiles(join(PUBLIC, 'sub_instruction_files')).sort(),
+  guidanceFiles: listFiles(join(PUBLIC, 'guidance_docs')).sort(),
   manual: buildManualStructure(),
 };
 
 writeFileSync(join(PUBLIC, 'manifest.json'), JSON.stringify(manifest, null, 2));
 
 console.log(
-  `manifest.json generated: ${manifest.instructionFiles.length} instruction file(s), ` +
-    `${manifest.subInstructionFiles.length} sub-instruction file(s), ${manifest.manual.length} manual chapter(s).`
+  `manifest.json generated: ${manifest.guidanceFiles.length} guidance file(s), ${manifest.manual.length} manual chapter(s).`
 );

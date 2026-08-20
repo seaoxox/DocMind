@@ -17,6 +17,7 @@ export default defineConfig({
         manualChunks(id: string) {
           if (id.includes('pdfjs-dist')) return 'pdf';
           if (id.includes('mammoth')) return 'docx';
+          if (id.includes('@huggingface/transformers')) return 'embeddings';
           if (id.includes('node_modules/motion')) return 'motion';
           if (id.includes('react-markdown') || id.includes('remark') || id.includes('mdast') || id.includes('micromark')) return 'markdown';
         },

@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, KeyRound, Info } from 'lucide-react';
+import { X, KeyRound, Info, ChevronDown } from 'lucide-react';
 import type { AiProvider, ProviderSettings } from '../types';
-import { DEFAULT_MODELS } from '../services/aiService';
+import { DEFAULT_MODELS, MODEL_OPTIONS } from '../services/models';
 import { cn } from '../lib/utils';
 
 interface Props {
@@ -26,11 +26,11 @@ export function SettingsModal({ open, settings, onClose, onSave }: Props) {
   }, [open, settings]);
 
   const handleProviderChange = (provider: AiProvider) => {
-    setDraft((d) => ({ ...d, provider, model: '' }));
+    setDraft((d) => ({ ...d, provider, model: DEFAULT_MODELS[provider] }));
   };
 
   const handleSave = () => {
-    onSave({ ...draft, model: draft.model.trim() || DEFAULT_MODELS[draft.provider] });
+    onSave(draft);
     onClose();
   };
 
@@ -102,16 +102,24 @@ export function SettingsModal({ open, settings, onClose, onSave }: Props) {
               </div>
 
               <div>
-                <label className="mb-1.5 block text-xs font-medium text-slate-500 dark:text-slate-400">
-                  模型名稱（選填，預設 {DEFAULT_MODELS[draft.provider]}）
-                </label>
-                <input
-                  type="text"
-                  value={draft.model}
-                  onChange={(e) => setDraft((d) => ({ ...d, model: e.target.value }))}
-                  placeholder={DEFAULT_MODELS[draft.provider]}
-                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-indigo-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
-                />
+                <label className="mb-1.5 block text-xs font-medium text-slate-500 dark:text-slate-400">模型</label>
+                <div className="relative">
+                  <select
+                    value={draft.model || DEFAULT_MODELS[draft.provider]}
+                    onChange={(e) => setDraft((d) => ({ ...d, model: e.target.value }))}
+                    className="w-full appearance-none rounded-lg border border-slate-200 bg-white px-3 py-2 pr-8 text-sm outline-none focus:border-indigo-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                  >
+                    {MODEL_OPTIONS[draft.provider].map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.label}（{m.tier}）
+                      </option>
+                    ))}
+                  </select>
+                  <ChevronDown size={14} className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                </div>
+                <p className="mt-1.5 text-[11px] text-slate-400 dark:text-slate-500">
+                  快速：回應更即時、成本較低；基礎：推理品質較佳，適合較複雜的問題。
+                </p>
               </div>
 
               <p className="rounded-lg bg-slate-50 p-3 text-xs leading-relaxed text-slate-500 dark:bg-slate-800/60 dark:text-slate-400">

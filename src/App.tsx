@@ -1,12 +1,13 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Menu, BookOpen, History as HistoryIcon, X, CheckCircle2, Quote } from 'lucide-react';
+import { Menu, History as HistoryIcon, X, Quote } from 'lucide-react';
 
 import type { AppDocument, ManualChapter, ProviderSettings, QuestionRecord, ViewMode, Citation } from './types';
 import { cn, taipeiDateString, uid } from './lib/utils';
-import { parseFile, parseFromUrl } from './services/docParser';
+import { parseFromUrl } from './services/docParser';
 import { askQuestion } from './services/aiService';
 import { loadManifest } from './services/manifest';
+import { ensureIndex, search, type IndexStatus } from './services/ragPipeline';
 import {
   loadSettings,
   saveSettings,
@@ -21,7 +22,8 @@ import {
 import { Disclaimer } from './components/Disclaimer';
 import { SettingsModal } from './components/SettingsModal';
 import { SidebarDrawer } from './components/SidebarDrawer';
-import { DocPickerDropdown } from './components/DocPickerDropdown';
+import { IndexStatusBadge } from './components/IndexStatus';
+import { IndexingOverlay } from './components/IndexingOverlay';
 import { HistoryPanel, HistoryItem } from './components/HistoryPanel';
 import { AnswerSection } from './components/AnswerSection';
 import { CitationStrip, CitationModal } from './components/CitationStrip';
@@ -57,32 +59,25 @@ export default function App() {
   const [viewMode, setViewMode] = useState<ViewMode>('qa');
   const [drawerOpen, setDrawerOpen] = useState(false);
 
-  // ---- Documents ----
-  const [mainDocs, setMainDocs] = useState<AppDocument[]>([]);
-  const [extraDocs, setExtraDocs] = useState<AppDocument[]>([]);
-  const [manualDocs, setManualDocs] = useState<AppDocument[]>([]);
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [docsLoading, setDocsLoading] = useState(true);
+  // ---- Documents + vector index ----
   const [manualChapters, setManualChapters] = useState<ManualChapter[]>([]);
+  const [indexStatus, setIndexStatus] = useState<IndexStatus>({ phase: 'idle' });
+  const allDocsRef = useRef<AppDocument[]>([]);
+
+  const runIndexing = async (forceRebuild = false) => {
+    await ensureIndex(allDocsRef.current, setIndexStatus, forceRebuild);
+  };
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      setDocsLoading(true);
       try {
         const manifest = await loadManifest();
 
-        const mainResults = await Promise.allSettled(
-          manifest.instructionFiles.map((name) => parseFromUrl(`${BASE}instruction_files/${name}`, name, 'main'))
-        );
-        const extraResults = await Promise.allSettled(
-          manifest.subInstructionFiles.map((name) =>
-            parseFromUrl(`${BASE}sub_instruction_files/${name}`, name, 'extra')
-          )
+        const guidanceResults = await Promise.allSettled(
+          manifest.guidanceFiles.map((name) => parseFromUrl(`${BASE}guidance_docs/${name}`, name, 'guidance'))
         );
 
-        // Manual chapter files are auto-included in every question's context,
-        // regardless of user selection (matches original behaviour).
         const manualFileJobs: Promise<AppDocument>[] = [];
         for (const chapter of manifest.manual) {
           for (const file of chapter.files) {
@@ -93,18 +88,22 @@ export default function App() {
         const manualResults = await Promise.allSettled(manualFileJobs);
 
         if (cancelled) return;
-        setMainDocs(
-          mainResults.filter((r): r is PromiseFulfilledResult<AppDocument> => r.status === 'fulfilled').map((r) => r.value)
-        );
-        setExtraDocs(
-          extraResults.filter((r): r is PromiseFulfilledResult<AppDocument> => r.status === 'fulfilled').map((r) => r.value)
-        );
-        setManualDocs(
-          manualResults.filter((r): r is PromiseFulfilledResult<AppDocument> => r.status === 'fulfilled').map((r) => r.value)
-        );
+
+        const guidanceDocs = guidanceResults
+          .filter((r): r is PromiseFulfilledResult<AppDocument> => r.status === 'fulfilled')
+          .map((r) => r.value);
+        const manualDocs = manualResults
+          .filter((r): r is PromiseFulfilledResult<AppDocument> => r.status === 'fulfilled')
+          .map((r) => r.value);
+
+        allDocsRef.current = [...guidanceDocs, ...manualDocs];
         setManualChapters(manifest.manual);
-      } finally {
-        if (!cancelled) setDocsLoading(false);
+
+        await ensureIndex(allDocsRef.current, setIndexStatus);
+      } catch (err) {
+        if (!cancelled) {
+          setIndexStatus({ phase: 'error', message: err instanceof Error ? err.message : '文件載入失敗。' });
+        }
       }
     })();
     return () => {
@@ -112,73 +111,8 @@ export default function App() {
     };
   }, []);
 
-  const toggleSelect = (id: string) => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
-
-  const toggleAll = (_category: 'main' | 'extra', ids: string[], value: boolean) => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      ids.forEach((id) => (value ? next.add(id) : next.delete(id)));
-      return next;
-    });
-  };
-
-  const handleUpload = async (files: FileList, category: 'main' | 'extra') => {
-    setDocsLoading(true);
-    try {
-      const parsed = await Promise.all(Array.from(files).map((f) => parseFile(f, category)));
-      if (category === 'main') setMainDocs((prev) => [...prev, ...parsed]);
-      else setExtraDocs((prev) => [...prev, ...parsed]);
-      setSelectedIds((prev) => {
-        const next = new Set(prev);
-        parsed.forEach((d) => next.add(d.id));
-        return next;
-      });
-    } catch (err) {
-      console.error(err);
-      alert('文件解析失敗，請確認檔案格式是否為 Word/PDF/Markdown/純文字。');
-    } finally {
-      setDocsLoading(false);
-    }
-  };
-
-  const handleRemove = (id: string) => {
-    setMainDocs((prev) => prev.filter((d) => d.id !== id));
-    setExtraDocs((prev) => prev.filter((d) => d.id !== id));
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      next.delete(id);
-      return next;
-    });
-  };
-
-  const allSelectableDocs = useMemo(() => [...mainDocs, ...extraDocs], [mainDocs, extraDocs]);
-  const selectedDocs = useMemo(() => allSelectableDocs.filter((d) => selectedIds.has(d.id)), [allSelectableDocs, selectedIds]);
-  // Manual docs are always included, on top of whatever the user explicitly selected.
-  const contextDocs = useMemo(() => [...selectedDocs, ...manualDocs], [selectedDocs, manualDocs]);
-
-  const docPickerProps = {
-    mainDocs,
-    extraDocs,
-    selectedIds,
-    onToggle: toggleSelect,
-    onToggleAll: toggleAll,
-    onUpload: handleUpload,
-    onRemove: handleRemove,
-    loading: docsLoading,
-  };
-
-  // ---- Mobile overlays ----
-  const [mobileDocsOpen, setMobileDocsOpen] = useState(false);
-  const [mobileHistoryOpen, setMobileHistoryOpen] = useState(false);
-
   // ---- History / Q&A ----
+  const [mobileHistoryOpen, setMobileHistoryOpen] = useState(false);
   const [history, setHistory] = useState<QuestionRecord[]>(loadHistory());
   const [currentRecordId, setCurrentRecordId] = useState<string | null>(null);
   const [question, setQuestion] = useState('');
@@ -192,23 +126,23 @@ export default function App() {
 
   const handleAsk = async () => {
     if (!question.trim() || asking) return;
-    if (contextDocs.length === 0) {
-      setAskError('請先勾選至少一份文件再提問。');
+    if (indexStatus.phase !== 'ready') {
+      setAskError('向量索引尚未建立完成，請稍候再試。');
       return;
     }
     setAskError(null);
     setAsking(true);
     const q = question;
     try {
-      const result = await askQuestion(settings, q, contextDocs);
+      const chunks = await search(q);
+      const result = await askQuestion(settings, q, chunks);
       const record: QuestionRecord = {
         id: uid('qr'),
         question: q,
         answer: result.answer,
         citations: result.citations,
         timestamp: Date.now(),
-        docIds: contextDocs.map((d) => d.id),
-        docNames: contextDocs.map((d) => d.name),
+        retrievedSources: Array.from(new Set(chunks.map((c) => c.source))),
       };
       setHistory((prev) => [record, ...prev]);
       setCurrentRecordId(record.id);
@@ -226,12 +160,10 @@ export default function App() {
     setAskError(null);
   };
 
-  // ---- Mobile overlays ----
-  const totalSelected = selectedDocs.length;
-
   return (
     <div className={cn('flex h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 overflow-hidden', theme === 'dark' && 'dark')}>
       <Disclaimer open={disclaimerOpen} onAccept={acceptDisclaimer} />
+      <IndexingOverlay status={indexStatus} />
       <SettingsModal open={settingsOpen} settings={settings} onClose={() => setSettingsOpen(false)} onSave={handleSaveSettings} />
       <SidebarDrawer
         open={drawerOpen}
@@ -241,6 +173,7 @@ export default function App() {
         theme={theme}
         onToggleTheme={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}
         onOpenSettings={() => setSettingsOpen(true)}
+        onRebuildIndex={() => runIndexing(true)}
       />
 
       {/* Floating control bar (top-left) */}
@@ -266,11 +199,9 @@ export default function App() {
               initial={{ opacity: 0, x: -10 }}
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: -10 }}
-              className="hidden lg:flex items-center gap-2 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md p-1 rounded-2xl border border-slate-200/50 dark:border-slate-800/50 shadow-md"
+              className="hidden lg:block"
             >
-              <div className="flex items-center gap-1.5 min-w-[180px]">
-                <DocPickerDropdown {...docPickerProps} />
-              </div>
+              <IndexStatusBadge status={indexStatus} onRebuild={() => runIndexing(true)} />
             </motion.div>
           )}
         </AnimatePresence>
@@ -335,13 +266,7 @@ export default function App() {
             {/* MOBILE QA LAYOUT */}
             <div className="flex lg:hidden flex-col w-full h-full bg-white dark:bg-slate-900 relative">
               <header className="flex items-center justify-between p-4 pl-32 border-b border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 sticky top-0 z-20">
-                <button
-                  onClick={() => setMobileDocsOpen(true)}
-                  className="flex items-center gap-2 py-2.5 px-4 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-400 rounded-2xl text-[11px] font-bold"
-                >
-                  <BookOpen className="w-4 h-4" />
-                  選擇文件 {totalSelected > 0 && `(${totalSelected})`}
-                </button>
+                <IndexStatusBadge status={indexStatus} onRebuild={() => runIndexing(true)} compact />
                 <button
                   onClick={() => setMobileHistoryOpen(true)}
                   className="flex items-center gap-2 py-2.5 px-4 bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-400 rounded-2xl text-[11px] font-bold border border-slate-200 dark:border-slate-700"
@@ -375,54 +300,8 @@ export default function App() {
                 <AskInput value={question} onChange={setQuestion} onSubmit={handleAsk} loading={asking} variant="mobile" />
               </footer>
 
-              {/* Mobile Overlays */}
+              {/* Mobile history overlay */}
               <AnimatePresence>
-                {mobileDocsOpen && (
-                  <motion.div
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                    className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm p-4 flex flex-col justify-end"
-                  >
-                    <motion.div
-                      initial={{ y: '100%' }}
-                      animate={{ y: 0 }}
-                      exit={{ y: '100%' }}
-                      className="bg-white dark:bg-slate-900 rounded-t-[32px] p-6 max-h-[85vh] flex flex-col shadow-2xl"
-                    >
-                      <div className="flex items-center justify-between mb-8">
-                        <h2 className="text-lg font-bold text-slate-800 dark:text-slate-100">指引文件管理</h2>
-                        <button
-                          onClick={() => setMobileDocsOpen(false)}
-                          className="w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-500"
-                        >
-                          <X className="w-4 h-4" />
-                        </button>
-                      </div>
-                      <div className="flex-1 overflow-y-auto space-y-6 pb-6 custom-scrollbar">
-                        <DocGroup
-                          title="主要指引文件"
-                          category="main"
-                          docs={mainDocs}
-                          selectedIds={selectedIds}
-                          onToggle={toggleSelect}
-                          onToggleAll={(ids, value) => toggleAll('main', ids, value)}
-                          onUpload={handleUpload}
-                        />
-                        <DocGroup
-                          title="額外指引文件"
-                          category="extra"
-                          docs={extraDocs}
-                          selectedIds={selectedIds}
-                          onToggle={toggleSelect}
-                          onToggleAll={(ids, value) => toggleAll('extra', ids, value)}
-                          onUpload={handleUpload}
-                        />
-                      </div>
-                    </motion.div>
-                  </motion.div>
-                )}
-
                 {mobileHistoryOpen && (
                   <motion.div
                     initial={{ opacity: 0 }}
@@ -480,73 +359,6 @@ export default function App() {
         .dark .custom-scrollbar::-webkit-scrollbar-thumb { background: #1E293B; }
         .dark .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #334155; }
       `}</style>
-    </div>
-  );
-}
-
-function DocGroup({
-  title,
-  category,
-  docs,
-  selectedIds,
-  onToggle,
-  onToggleAll,
-  onUpload,
-}: {
-  title: string;
-  category: 'main' | 'extra';
-  docs: AppDocument[];
-  selectedIds: Set<string>;
-  onToggle: (id: string) => void;
-  onToggleAll: (ids: string[], value: boolean) => void;
-  onUpload: (files: FileList, category: 'main' | 'extra') => void;
-}) {
-  const allIds = docs.map((d) => d.id);
-  const allSelected = allIds.length > 0 && allIds.every((id) => selectedIds.has(id));
-  const inputId = `upload-${category}`;
-
-  return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between px-1">
-        <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{title}</div>
-        <div className="flex items-center gap-3">
-          <label htmlFor={inputId} className="text-[10px] font-black text-slate-400 hover:text-indigo-500 uppercase cursor-pointer">
-            上傳
-          </label>
-          <input
-            id={inputId}
-            type="file"
-            multiple
-            accept=".docx,.doc,.pdf,.md,.markdown,.txt"
-            className="hidden"
-            onChange={(e) => {
-              if (e.target.files && e.target.files.length > 0) onUpload(e.target.files, category);
-              e.target.value = '';
-            }}
-          />
-          <button onClick={() => onToggleAll(allIds, !allSelected)} className="text-[10px] font-black text-indigo-500 uppercase">
-            {allSelected ? '取消全選' : '全選'}
-          </button>
-        </div>
-      </div>
-      <div className="space-y-2">
-        {docs.map((doc) => (
-          <button
-            key={doc.id}
-            onClick={() => onToggle(doc.id)}
-            className={cn(
-              'w-full p-4 rounded-2xl border text-left flex items-center justify-between transition-all',
-              selectedIds.has(doc.id)
-                ? 'bg-indigo-50 dark:bg-indigo-900/30 border-indigo-200 dark:border-indigo-500/50 text-indigo-700 dark:text-indigo-400'
-                : 'bg-white dark:bg-slate-800/50 border-slate-100 dark:border-slate-800 text-slate-600 dark:text-slate-400'
-            )}
-          >
-            <span className="text-sm font-bold truncate pr-4">{doc.name}</span>
-            {selectedIds.has(doc.id) && <CheckCircle2 className="w-5 h-5" />}
-          </button>
-        ))}
-        {docs.length === 0 && <div className="p-4 text-center text-[10px] text-slate-400 italic font-medium uppercase tracking-widest">No files</div>}
-      </div>
     </div>
   );
 }

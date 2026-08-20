@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from 'motion/react';
-import { X, MessageSquare, BookOpen, Settings as SettingsIcon } from 'lucide-react';
+import { X, MessageSquare, BookOpen, Settings as SettingsIcon, RotateCw } from 'lucide-react';
 import type { ViewMode } from '../types';
 import { cn } from '../lib/utils';
 import { ThemeToggle } from './ThemeToggle';
@@ -12,9 +12,19 @@ interface Props {
   theme: 'light' | 'dark';
   onToggleTheme: () => void;
   onOpenSettings: () => void;
+  onRebuildIndex: () => void;
 }
 
-export function SidebarDrawer({ open, onClose, mode, onChangeMode, theme, onToggleTheme, onOpenSettings }: Props) {
+export function SidebarDrawer({
+  open,
+  onClose,
+  mode,
+  onChangeMode,
+  theme,
+  onToggleTheme,
+  onOpenSettings,
+  onRebuildIndex,
+}: Props) {
   return (
     <AnimatePresence>
       {open && (
@@ -128,12 +138,29 @@ export function SidebarDrawer({ open, onClose, mode, onChangeMode, theme, onTogg
                 </div>
               </button>
 
+              <button
+                onClick={() => {
+                  onRebuildIndex();
+                  onClose();
+                }}
+                className="w-full flex items-center gap-4 p-4 rounded-2xl transition-all font-bold text-left group text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800/50"
+              >
+                <div className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 group-hover:bg-indigo-50 dark:group-hover:bg-indigo-900/30 transition-colors">
+                  <RotateCw className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="text-sm">重建向量索引</div>
+                  <div className="text-[10px] font-medium opacity-60 text-slate-400">Rebuild Vector Index</div>
+                </div>
+              </button>
+
               <div className="pt-8 px-4 py-2 text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em] mb-2">
                 Shortcuts
               </div>
               <div className="bg-slate-50 dark:bg-slate-800/50 rounded-3xl p-6 border border-slate-100 dark:border-slate-800">
                 <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed font-medium">
-                  切換不同模式以利進行文件管理或與 AI 對話。所有文件解析與 AI 呼叫皆在您的瀏覽器本機完成。
+                  系統會自動將指引文件切割並嵌入為向量，於每次提問時搜尋最相關的段落作答，不需手動選擇文件。所有解析、嵌入與向量索引皆儲存於您瀏覽器的
+                  IndexedDB 本機資料庫。
                 </p>
               </div>
             </div>

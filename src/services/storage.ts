@@ -1,4 +1,5 @@
 import type { ProviderSettings, QuestionRecord } from '../types';
+import { DEFAULT_MODELS } from './models';
 
 const KEYS = {
   settings: 'docmind.settings',
@@ -14,7 +15,7 @@ export function loadSettings(): ProviderSettings {
   } catch {
     /* ignore */
   }
-  return { provider: 'gemini', apiKey: '', model: '' };
+  return { provider: 'gemini', apiKey: '', model: DEFAULT_MODELS.gemini };
 }
 
 export function saveSettings(settings: ProviderSettings) {

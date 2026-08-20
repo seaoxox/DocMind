@@ -23,42 +23,11 @@ async function parseDocx(buffer: ArrayBuffer): Promise<string> {
   return result.value;
 }
 
-/** Parse a File object (from <input type=file> or drag/drop) into an AppDocument */
-export async function parseFile(file: File, category: DocCategory): Promise<AppDocument> {
-  const type = extToDocType(file.name);
-  let content = '';
-
-  if (type === 'word') {
-    content = await parseDocx(await file.arrayBuffer());
-  } else if (type === 'pdf') {
-    content = await parsePdf(await file.arrayBuffer());
-  } else if (type === 'markdown' || type === 'text') {
-    content = await file.text();
-  } else {
-    // best effort: try reading as text
-    content = await file.text();
-  }
-
-  return {
-    id: uid('doc'),
-    name: file.name,
-    content,
-    type,
-    category,
-    builtIn: false,
-    sizeChars: content.length,
-  };
-}
-
-/** Fetch + parse a built-in file (served as a static asset next to index.html) */
-export async function parseFromUrl(
-  url: string,
-  name: string,
-  category: DocCategory
-): Promise<AppDocument> {
+/** Fetch + parse a bundled file (served as a static asset next to index.html). */
+export async function parseFromUrl(url: string, name: string, category: DocCategory): Promise<AppDocument> {
   const type = extToDocType(name);
   const res = await fetch(url);
-  if (!res.ok) throw new Error(`無法載入內建文件: ${name} (${res.status})`);
+  if (!res.ok) throw new Error(`無法載入文件: ${name} (${res.status})`);
 
   let content = '';
   if (type === 'word') {
@@ -75,7 +44,6 @@ export async function parseFromUrl(
     content,
     type,
     category,
-    builtIn: true,
     sizeChars: content.length,
   };
 }

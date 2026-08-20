@@ -1,5 +1,5 @@
 export type DocType = 'markdown' | 'word' | 'pdf' | 'text' | 'unknown';
-export type DocCategory = 'main' | 'extra' | 'manual';
+export type DocCategory = 'guidance' | 'manual';
 
 export interface AppDocument {
   id: string;
@@ -7,8 +7,6 @@ export interface AppDocument {
   content: string;
   type: DocType;
   category: DocCategory;
-  /** true if this came from the bundled public/ manifest, false if user-uploaded */
-  builtIn: boolean;
   sizeChars: number;
 }
 
@@ -17,17 +15,28 @@ export interface Citation {
   source: string;
 }
 
+export interface RetrievedChunk {
+  text: string;
+  source: string;
+  score: number;
+}
+
 export interface QuestionRecord {
   id: string;
   question: string;
   answer: string;
   citations: Citation[];
   timestamp: number;
-  docIds: string[];
-  docNames: string[];
+  retrievedSources: string[];
 }
 
 export type AiProvider = 'gemini' | 'openai' | 'anthropic';
+
+export interface ModelOption {
+  id: string;
+  label: string;
+  tier: '快速' | '基礎';
+}
 
 export interface ProviderSettings {
   provider: AiProvider;
@@ -48,10 +57,9 @@ export interface ManualChapter {
 }
 
 export interface Manifest {
-  instructionFiles: string[];
-  subInstructionFiles: string[];
+  guidanceFiles: string[];
   manual: ManualChapter[];
 }
 
 export type ViewMode = 'qa' | 'manual';
-export type AnswerTab = 'answer' | 'citations';
+
