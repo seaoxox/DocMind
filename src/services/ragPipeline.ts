@@ -5,12 +5,12 @@ import { clearChunks, countChunks, getAllChunks, getMeta, putChunks, setMeta, ty
 import { uid } from '../lib/utils';
 
 const FINGERPRINT_KEY = 'guidance-fingerprint';
-const TOP_K = 6;
+const TOP_K = 8;
 
 export type IndexStatus =
   | { phase: 'idle' }
   | { phase: 'checking' }
-  | { phase: 'embedding'; done: number; total: number }
+  | { phase: 'embedding'; done: number; total: number; currentSource?: string }
   | { phase: 'ready'; chunkCount: number }
   | { phase: 'error'; message: string };
 
@@ -66,13 +66,18 @@ export async function ensureIndex(
     const stored: StoredChunk[] = [];
     for (let i = 0; i < chunks.length; i += BATCH_SIZE) {
       const batch = chunks.slice(i, i + BATCH_SIZE);
+      // Most representative source in this batch, for a friendlier progress message.
+      const batchSourceCounts = new Map<string, number>();
+      for (const c of batch) batchSourceCounts.set(c.source, (batchSourceCounts.get(c.source) ?? 0) + 1);
+      const currentSource = Array.from(batchSourceCounts.entries()).sort((a, b) => b[1] - a[1])[0]?.[0];
+
       const vectors = await embedTexts(
         batch.map((c) => c.text),
         (p: EmbeddingProgress) => {
           // Model download progress (first run only) reported as 0-100 per file;
           // we surface it as part of the same "embedding" phase for simplicity.
           if (p.progress !== undefined) {
-            onStatus({ phase: 'embedding', done: i, total: chunks.length });
+            onStatus({ phase: 'embedding', done: i, total: chunks.length, currentSource });
           }
         }
       );
@@ -84,7 +89,7 @@ export async function ensureIndex(
       }));
       stored.push(...newlyStored);
       await putChunks(newlyStored);
-      onStatus({ phase: 'embedding', done: Math.min(i + BATCH_SIZE, chunks.length), total: chunks.length });
+      onStatus({ phase: 'embedding', done: Math.min(i + BATCH_SIZE, chunks.length), total: chunks.length, currentSource });
     }
 
     await setMeta(FINGERPRINT_KEY, fingerprint);
@@ -102,7 +107,13 @@ function cosineSimilarity(a: number[], b: number[]): number {
   return dot;
 }
 
-/** Performs a semantic search over the local vector index and returns the top-K most relevant chunks. */
+/**
+ * Performs a semantic search over the local vector index and returns the top-K most relevant
+ * chunks, with a per-source cap so a single large document can't monopolize every slot even
+ * when it happens to score well on broad questions. Relevance is still the primary ranking
+ * signal — the cap only kicks in once a source has already claimed a generous share of the
+ * results, leaving room for other documents to surface when they're genuinely relevant too.
+ */
 export async function search(query: string, topK: number = TOP_K): Promise<RetrievedChunk[]> {
   if (!cachedChunks) {
     cachedChunks = await getAllChunks();
@@ -110,13 +121,37 @@ export async function search(query: string, topK: number = TOP_K): Promise<Retri
   if (cachedChunks.length === 0) return [];
 
   const queryVec = await embedQuery(query);
-  const scored = cachedChunks.map((c) => ({
-    text: c.text,
-    source: c.source,
-    score: cosineSimilarity(queryVec, c.embedding),
-  }));
-  scored.sort((a, b) => b.score - a.score);
-  return scored.slice(0, topK);
+  const scored = cachedChunks
+    .map((c) => ({
+      text: c.text,
+      source: c.source,
+      score: cosineSimilarity(queryVec, c.embedding),
+    }))
+    .sort((a, b) => b.score - a.score);
+
+  const distinctSources = new Set(scored.map((c) => c.source)).size;
+  // With few distinct sources, a stricter cap would just force in irrelevant filler —
+  // only diversify meaningfully once there's more than one source to diversify across.
+  const maxPerSource = distinctSources <= 1 ? topK : Math.max(2, Math.ceil(topK / Math.min(distinctSources, 3)));
+
+  const result: RetrievedChunk[] = [];
+  const perSourceCount = new Map<string, number>();
+  for (const item of scored) {
+    if (result.length >= topK) break;
+    const count = perSourceCount.get(item.source) ?? 0;
+    if (count >= maxPerSource) continue;
+    result.push(item);
+    perSourceCount.set(item.source, count + 1);
+  }
+  // Backfill with the next-highest-scoring chunks if the cap left us short (rare).
+  if (result.length < topK) {
+    for (const item of scored) {
+      if (result.length >= topK) break;
+      if (!result.includes(item)) result.push(item);
+    }
+  }
+
+  return result;
 }
 
 export interface IndexSourceSummary {

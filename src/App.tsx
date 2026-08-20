@@ -31,6 +31,7 @@ import { ConfirmDialog } from './components/ConfirmDialog';
 import { HistoryPanel, HistoryItem } from './components/HistoryPanel';
 import { AnswerSection } from './components/AnswerSection';
 import { CitationStrip, CitationModal } from './components/CitationStrip';
+import { SourceTags } from './components/SourceTags';
 import { AskInput, type CostEstimate } from './components/AskInput';
 import { ManualBrowser } from './components/ManualBrowser';
 
@@ -68,9 +69,11 @@ export default function App() {
   const [indexStatus, setIndexStatus] = useState<IndexStatus>({ phase: 'idle' });
   const [indexDetailsOpen, setIndexDetailsOpen] = useState(false);
   const [rebuildConfirmOpen, setRebuildConfirmOpen] = useState(false);
+  const [isRebuild, setIsRebuild] = useState(false);
   const allDocsRef = useRef<AppDocument[]>([]);
 
   const runIndexing = async (forceRebuild = false) => {
+    setIsRebuild(forceRebuild);
     await ensureIndex(allDocsRef.current, setIndexStatus, forceRebuild);
   };
 
@@ -217,7 +220,7 @@ export default function App() {
   return (
     <div className={cn('flex h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 overflow-hidden', theme === 'dark' && 'dark')}>
       <Disclaimer open={disclaimerOpen} onAccept={acceptDisclaimer} />
-      <IndexingOverlay status={indexStatus} />
+      <IndexingOverlay status={indexStatus} isRebuild={isRebuild} />
       <IndexDetailsModal
         open={indexDetailsOpen}
         onClose={() => setIndexDetailsOpen(false)}
@@ -311,15 +314,18 @@ export default function App() {
                 </section>
 
                 <section className="h-[210px] border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 p-4 lg:p-5 flex flex-col overflow-hidden shrink-0">
-                  <div className="flex items-center justify-between mb-2 max-w-5xl mx-auto w-full px-2">
-                    <h3 className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400 dark:text-slate-500 flex items-center gap-2">
+                  <div className="flex items-center justify-between mb-2 max-w-5xl mx-auto w-full px-2 gap-3">
+                    <h3 className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400 dark:text-slate-500 flex items-center gap-2 shrink-0">
                       <Quote className="w-2.5 h-2.5" />
                       對應出處 / Source References
                     </h3>
                     {currentRecord && (
-                      <span className="text-[9px] bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-400 px-2 py-0.5 rounded-full font-bold uppercase">
-                        {currentRecord.citations.length} Citations
-                      </span>
+                      <div className="flex items-center gap-2 min-w-0">
+                        <SourceTags sources={currentRecord.retrievedSources} />
+                        <span className="text-[9px] bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-400 px-2 py-0.5 rounded-full font-bold uppercase shrink-0">
+                          {currentRecord.citations.length} Citations
+                        </span>
+                      </div>
                     )}
                   </div>
                   <div className="max-w-5xl mx-auto w-full flex-1 overflow-x-auto overflow-y-hidden custom-scrollbar pb-1">
@@ -353,9 +359,12 @@ export default function App() {
 
                 {currentRecord && (
                   <div className="space-y-4">
-                    <h3 className="text-[10px] font-bold uppercase text-slate-400 dark:text-slate-500 tracking-[0.2em] px-1">
-                      對應出處
-                    </h3>
+                    <div className="flex items-center justify-between px-1 gap-3">
+                      <h3 className="text-[10px] font-bold uppercase text-slate-400 dark:text-slate-500 tracking-[0.2em] shrink-0">
+                        對應出處
+                      </h3>
+                      <SourceTags sources={currentRecord.retrievedSources} max={2} />
+                    </div>
                     <CitationStrip
                       citations={currentRecord.citations}
                       hasRecord
