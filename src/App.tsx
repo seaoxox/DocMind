@@ -1,11 +1,13 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Menu, History as HistoryIcon, X, Quote } from 'lucide-react';
 
 import type { AppDocument, ManualChapter, ProviderSettings, QuestionRecord, ViewMode, Citation } from './types';
 import { cn, taipeiDateString, uid } from './lib/utils';
+import { estimateTokens } from './lib/tokenEstimate';
 import { parseFromUrl } from './services/docParser';
-import { askQuestion } from './services/aiService';
+import { askQuestion, usageToTokenUsage, SYSTEM_PROMPT_TEXT } from './services/aiService';
+import { getModelPricing } from './services/models';
 import { loadManifest } from './services/manifest';
 import { ensureIndex, search, type IndexStatus } from './services/ragPipeline';
 import {
@@ -23,11 +25,13 @@ import { Disclaimer } from './components/Disclaimer';
 import { SettingsModal } from './components/SettingsModal';
 import { SidebarDrawer } from './components/SidebarDrawer';
 import { IndexStatusBadge } from './components/IndexStatus';
+import { IndexDetailsModal } from './components/IndexDetailsModal';
 import { IndexingOverlay } from './components/IndexingOverlay';
+import { ConfirmDialog } from './components/ConfirmDialog';
 import { HistoryPanel, HistoryItem } from './components/HistoryPanel';
 import { AnswerSection } from './components/AnswerSection';
 import { CitationStrip, CitationModal } from './components/CitationStrip';
-import { AskInput } from './components/AskInput';
+import { AskInput, type CostEstimate } from './components/AskInput';
 import { ManualBrowser } from './components/ManualBrowser';
 
 const BASE = import.meta.env.BASE_URL;
@@ -62,11 +66,15 @@ export default function App() {
   // ---- Documents + vector index ----
   const [manualChapters, setManualChapters] = useState<ManualChapter[]>([]);
   const [indexStatus, setIndexStatus] = useState<IndexStatus>({ phase: 'idle' });
+  const [indexDetailsOpen, setIndexDetailsOpen] = useState(false);
+  const [rebuildConfirmOpen, setRebuildConfirmOpen] = useState(false);
   const allDocsRef = useRef<AppDocument[]>([]);
 
   const runIndexing = async (forceRebuild = false) => {
     await ensureIndex(allDocsRef.current, setIndexStatus, forceRebuild);
   };
+
+  const requestRebuild = () => setRebuildConfirmOpen(true);
 
   useEffect(() => {
     let cancelled = false;
@@ -119,10 +127,54 @@ export default function App() {
   const [asking, setAsking] = useState(false);
   const [askError, setAskError] = useState<string | null>(null);
   const [selectedCitation, setSelectedCitation] = useState<Citation | null>(null);
+  const [costEstimate, setCostEstimate] = useState<CostEstimate | null>(null);
 
   useEffect(() => saveHistory(history), [history]);
 
   const currentRecord = history.find((r) => r.id === currentRecordId) ?? null;
+
+  const sessionCost = useMemo(
+    () => history.reduce((sum, r) => sum + (r.usage?.cost ?? 0), 0),
+    [history]
+  );
+
+  // Pre-send cost prediction (B): debounced, runs the actual local vector search
+  // (free, in-browser) so the estimate reflects the real context that would be sent.
+  useEffect(() => {
+    const q = question.trim();
+    if (!q || indexStatus.phase !== 'ready') {
+      setCostEstimate(null);
+      return;
+    }
+    const pricing = getModelPricing(settings.model);
+    if (!pricing) {
+      setCostEstimate(null);
+      return;
+    }
+    let cancelled = false;
+    const handle = setTimeout(async () => {
+      try {
+        const chunks = await search(q);
+        if (cancelled) return;
+        const contextTokens = chunks.reduce((sum, c) => sum + estimateTokens(c.text), 0);
+        const inputTokens = contextTokens + estimateTokens(SYSTEM_PROMPT_TEXT) + estimateTokens(q);
+        const inputCost = (inputTokens / 1_000_000) * pricing.input;
+        const OUTPUT_TOKENS_LOW = 300;
+        const OUTPUT_TOKENS_HIGH = 900;
+        setCostEstimate({
+          inputTokens,
+          costLow: inputCost + (OUTPUT_TOKENS_LOW / 1_000_000) * pricing.output,
+          costHigh: inputCost + (OUTPUT_TOKENS_HIGH / 1_000_000) * pricing.output,
+        });
+      } catch {
+        if (!cancelled) setCostEstimate(null);
+      }
+    }, 500);
+    return () => {
+      cancelled = true;
+      clearTimeout(handle);
+    };
+  }, [question, indexStatus.phase, settings.model]);
 
   const handleAsk = async () => {
     if (!question.trim() || asking) return;
@@ -143,10 +195,12 @@ export default function App() {
         citations: result.citations,
         timestamp: Date.now(),
         retrievedSources: Array.from(new Set(chunks.map((c) => c.source))),
+        usage: usageToTokenUsage(result.usage, settings.model),
       };
       setHistory((prev) => [record, ...prev]);
       setCurrentRecordId(record.id);
       setQuestion('');
+      setCostEstimate(null);
       setMobileHistoryOpen(false);
     } catch (err) {
       setAskError(err instanceof Error ? err.message : '提問時發生未知錯誤。');
@@ -164,6 +218,22 @@ export default function App() {
     <div className={cn('flex h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 overflow-hidden', theme === 'dark' && 'dark')}>
       <Disclaimer open={disclaimerOpen} onAccept={acceptDisclaimer} />
       <IndexingOverlay status={indexStatus} />
+      <IndexDetailsModal
+        open={indexDetailsOpen}
+        onClose={() => setIndexDetailsOpen(false)}
+        onRebuild={() => {
+          setIndexDetailsOpen(false);
+          requestRebuild();
+        }}
+      />
+      <ConfirmDialog
+        open={rebuildConfirmOpen}
+        onClose={() => setRebuildConfirmOpen(false)}
+        onConfirm={() => runIndexing(true)}
+        title="重新建立向量索引？"
+        message="這會清除目前已建立的向量索引，並重新切割、嵌入所有指引文件，過程中無法進行問答，可能需要一些時間。"
+        secondMessage="請再次確認：此操作無法復原，將立即清除現有索引並重新開始建立。確定要繼續嗎？"
+      />
       <SettingsModal open={settingsOpen} settings={settings} onClose={() => setSettingsOpen(false)} onSave={handleSaveSettings} />
       <SidebarDrawer
         open={drawerOpen}
@@ -173,7 +243,8 @@ export default function App() {
         theme={theme}
         onToggleTheme={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}
         onOpenSettings={() => setSettingsOpen(true)}
-        onRebuildIndex={() => runIndexing(true)}
+        onOpenIndexDetails={() => setIndexDetailsOpen(true)}
+        sessionCost={sessionCost}
       />
 
       {/* Floating control bar (top-left) */}
@@ -201,7 +272,7 @@ export default function App() {
               exit={{ opacity: 0, x: -10 }}
               className="hidden lg:block"
             >
-              <IndexStatusBadge status={indexStatus} onRebuild={() => runIndexing(true)} />
+              <IndexStatusBadge status={indexStatus} onOpenDetails={() => setIndexDetailsOpen(true)} onRetry={requestRebuild} />
             </motion.div>
           )}
         </AnimatePresence>
@@ -226,6 +297,7 @@ export default function App() {
                       error={askError}
                       onRetry={handleAsk}
                       variant="desktop"
+                      costEstimate={costEstimate}
                     />
                   </div>
                 </div>
@@ -266,7 +338,7 @@ export default function App() {
             {/* MOBILE QA LAYOUT */}
             <div className="flex lg:hidden flex-col w-full h-full bg-white dark:bg-slate-900 relative">
               <header className="flex items-center justify-between p-4 pl-32 border-b border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 sticky top-0 z-20">
-                <IndexStatusBadge status={indexStatus} onRebuild={() => runIndexing(true)} compact />
+                <IndexStatusBadge status={indexStatus} onOpenDetails={() => setIndexDetailsOpen(true)} onRetry={requestRebuild} compact />
                 <button
                   onClick={() => setMobileHistoryOpen(true)}
                   className="flex items-center gap-2 py-2.5 px-4 bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-400 rounded-2xl text-[11px] font-bold border border-slate-200 dark:border-slate-700"
@@ -297,7 +369,14 @@ export default function App() {
               </main>
 
               <footer className="p-4 border-t border-slate-100 dark:border-slate-800 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md absolute bottom-0 left-0 right-0 z-20">
-                <AskInput value={question} onChange={setQuestion} onSubmit={handleAsk} loading={asking} variant="mobile" />
+                <AskInput
+                  value={question}
+                  onChange={setQuestion}
+                  onSubmit={handleAsk}
+                  loading={asking}
+                  variant="mobile"
+                  costEstimate={costEstimate}
+                />
               </footer>
 
               {/* Mobile history overlay */}

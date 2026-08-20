@@ -4,11 +4,12 @@ import { cn } from '../lib/utils';
 
 interface Props {
   status: IndexStatus;
-  onRebuild: () => void;
+  onOpenDetails: () => void;
+  onRetry: () => void;
   compact?: boolean;
 }
 
-export function IndexStatusBadge({ status, onRebuild, compact = false }: Props) {
+export function IndexStatusBadge({ status, onOpenDetails, onRetry, compact = false }: Props) {
   const base = 'flex items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-[10px] font-bold';
 
   if (status.phase === 'embedding') {
@@ -34,7 +35,7 @@ export function IndexStatusBadge({ status, onRebuild, compact = false }: Props) 
   if (status.phase === 'error') {
     return (
       <button
-        onClick={onRebuild}
+        onClick={onRetry}
         className={cn(base, 'border-rose-200 bg-rose-50 text-rose-600 dark:border-rose-900/50 dark:bg-rose-950/30 dark:text-rose-400')}
         title={status.message}
       >
@@ -47,12 +48,12 @@ export function IndexStatusBadge({ status, onRebuild, compact = false }: Props) 
   if (status.phase === 'ready') {
     return (
       <button
-        onClick={onRebuild}
+        onClick={onOpenDetails}
         className={cn(
           base,
           'border-emerald-200 bg-emerald-50 text-emerald-700 hover:border-emerald-300 dark:border-emerald-500/20 dark:bg-emerald-950/20 dark:text-emerald-400'
         )}
-        title="點擊重新建立向量索引"
+        title="點擊檢視索引內容"
       >
         <CheckCircle2 className="w-3 h-3 shrink-0" />
         {!compact ? <span>已索引 {status.chunkCount} 段落</span> : <span>{status.chunkCount}</span>}

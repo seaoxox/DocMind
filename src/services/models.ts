@@ -25,3 +25,27 @@ export const DEFAULT_MODELS: Record<AiProvider, string> = {
   openai: MODEL_OPTIONS.openai[1].id,
   anthropic: MODEL_OPTIONS.anthropic[1].id,
 };
+
+/**
+ * USD price per 1M tokens for each model, current as of Aug 2026 per each provider's
+ * official pricing page. Prices change over time — treat as an estimate, not a guarantee.
+ */
+export const MODEL_PRICING: Record<string, { input: number; output: number }> = {
+  'gemini-3.5-flash-lite': { input: 0.3, output: 2.5 },
+  'gemini-3.6-flash': { input: 1.5, output: 7.5 },
+  'gpt-5.6-luna': { input: 0.2, output: 1.2 },
+  'gpt-5.6-terra': { input: 2.0, output: 12.0 },
+  'claude-haiku-4-5-20251001': { input: 1.0, output: 5.0 },
+  'claude-sonnet-5': { input: 2.0, output: 10.0 },
+};
+
+export function getModelPricing(modelId: string): { input: number; output: number } | null {
+  return MODEL_PRICING[modelId] ?? null;
+}
+
+/** Computes USD cost from token counts using the model's per-1M-token pricing. */
+export function computeCost(modelId: string, inputTokens: number, outputTokens: number): number | null {
+  const pricing = getModelPricing(modelId);
+  if (!pricing) return null;
+  return (inputTokens / 1_000_000) * pricing.input + (outputTokens / 1_000_000) * pricing.output;
+}

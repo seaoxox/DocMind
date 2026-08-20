@@ -1,7 +1,13 @@
 import { type KeyboardEvent } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Send, RefreshCw, AlertCircle } from 'lucide-react';
+import { Send, RefreshCw, AlertCircle, Coins } from 'lucide-react';
 import { cn } from '../lib/utils';
+
+export interface CostEstimate {
+  inputTokens: number;
+  costLow: number;
+  costHigh: number;
+}
 
 interface Props {
   value: string;
@@ -11,9 +17,32 @@ interface Props {
   error?: string | null;
   onRetry?: () => void;
   variant?: 'desktop' | 'mobile';
+  costEstimate?: CostEstimate | null;
 }
 
-export function AskInput({ value, onChange, onSubmit, loading, error, onRetry, variant = 'desktop' }: Props) {
+function formatCost(v: number): string {
+  if (v < 0.01) return `$${v.toFixed(4)}`;
+  return `$${v.toFixed(3)}`;
+}
+
+function CostHint({ estimate, compact = false }: { estimate: CostEstimate; compact?: boolean }) {
+  return (
+    <div
+      className={cn(
+        'flex items-center gap-1.5 text-slate-400 dark:text-slate-500',
+        compact ? 'text-[10px] mt-1.5 px-1' : 'text-[10px] mt-2.5'
+      )}
+    >
+      <Coins className="w-3 h-3 shrink-0 text-amber-400" />
+      <span>
+        預估輸入 ~{estimate.inputTokens.toLocaleString()} tokens · 預估花費 {formatCost(estimate.costLow)}–
+        {formatCost(estimate.costHigh)}（依實際回答長度而定）
+      </span>
+    </div>
+  );
+}
+
+export function AskInput({ value, onChange, onSubmit, loading, error, onRetry, variant = 'desktop', costEstimate }: Props) {
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
@@ -23,22 +52,25 @@ export function AskInput({ value, onChange, onSubmit, loading, error, onRetry, v
 
   if (variant === 'mobile') {
     return (
-      <div className="relative">
-        <textarea
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          onKeyDown={handleKeyDown}
-          className="w-full bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-3xl p-4 pr-12 text-sm resize-none focus:outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all font-medium text-slate-700 dark:text-slate-200"
-          rows={2}
-          placeholder="輸入您的問題..."
-        />
-        <button
-          onClick={onSubmit}
-          disabled={loading}
-          className="absolute right-3 bottom-4 p-2.5 bg-indigo-600 text-white rounded-2xl shadow-xl shadow-indigo-100 dark:shadow-indigo-900/20 disabled:opacity-40"
-        >
-          {loading ? <RefreshCw className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
-        </button>
+      <div>
+        <div className="relative">
+          <textarea
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+            onKeyDown={handleKeyDown}
+            className="w-full bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-3xl p-4 pr-12 text-sm resize-none focus:outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all font-medium text-slate-700 dark:text-slate-200"
+            rows={2}
+            placeholder="輸入您的問題..."
+          />
+          <button
+            onClick={onSubmit}
+            disabled={loading}
+            className="absolute right-3 bottom-4 p-2.5 bg-indigo-600 text-white rounded-2xl shadow-xl shadow-indigo-100 dark:shadow-indigo-900/20 disabled:opacity-40"
+          >
+            {loading ? <RefreshCw className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
+          </button>
+        </div>
+        {costEstimate && <CostHint estimate={costEstimate} compact />}
       </div>
     );
   }
@@ -88,6 +120,7 @@ export function AskInput({ value, onChange, onSubmit, loading, error, onRetry, v
           {loading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
         </button>
       </div>
+      {costEstimate && <CostHint estimate={costEstimate} />}
     </>
   );
 }

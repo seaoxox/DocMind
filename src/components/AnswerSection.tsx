@@ -1,8 +1,26 @@
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { motion, AnimatePresence } from 'motion/react';
-import { LayoutDashboard } from 'lucide-react';
+import { LayoutDashboard, Coins } from 'lucide-react';
 import type { QuestionRecord } from '../types';
+
+function formatCost(v: number): string {
+  return v < 0.01 ? `$${v.toFixed(4)}` : `$${v.toFixed(3)}`;
+}
+
+function UsageTag({ record }: { record: QuestionRecord }) {
+  if (!record.usage) return null;
+  const { inputTokens, outputTokens, cost } = record.usage;
+  return (
+    <div className="flex items-center gap-1.5 text-[10px] font-mono text-slate-400 dark:text-slate-500 mt-2">
+      <Coins className="w-3 h-3 text-amber-400 shrink-0" />
+      <span>
+        輸入 {inputTokens.toLocaleString()} · 輸出 {outputTokens.toLocaleString()} tokens
+        {cost != null && <> · {formatCost(cost)}</>}
+      </span>
+    </div>
+  );
+}
 
 interface Props {
   record: QuestionRecord | null;
@@ -75,14 +93,18 @@ export function AnswerSection({ record, loading, error, compact = false }: Props
                 <div className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest px-0.5">
                   {record.question}
                 </div>
+                <UsageTag record={record} />
               </div>
             </div>
           )}
           {compact ? (
-            <div className="bg-indigo-50/50 dark:bg-indigo-900/10 p-6 rounded-[2rem] border-l-4 border-indigo-600 dark:border-indigo-500 text-slate-800 dark:text-slate-200 leading-relaxed font-medium">
-              <div className="prose prose-sm dark:prose-invert prose-indigo dark:prose-indigo max-w-none">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>{record.answer}</ReactMarkdown>
+            <div>
+              <div className="bg-indigo-50/50 dark:bg-indigo-900/10 p-6 rounded-[2rem] border-l-4 border-indigo-600 dark:border-indigo-500 text-slate-800 dark:text-slate-200 leading-relaxed font-medium">
+                <div className="prose prose-sm dark:prose-invert prose-indigo dark:prose-indigo max-w-none">
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{record.answer}</ReactMarkdown>
+                </div>
               </div>
+              <UsageTag record={record} />
             </div>
           ) : (
             <div className="relative">

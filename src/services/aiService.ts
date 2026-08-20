@@ -1,8 +1,15 @@
 import type { Citation, ProviderSettings, RetrievedChunk } from '../types';
+import { computeCost } from './models';
+
+export interface RawTokenUsage {
+  inputTokens: number;
+  outputTokens: number;
+}
 
 export interface AskResult {
   answer: string;
   citations: Citation[];
+  usage: RawTokenUsage;
   raw?: string;
 }
 
@@ -20,16 +27,18 @@ Formatting Rules:
   ]
 }`;
 
-function buildContext(chunks: RetrievedChunk[]): string {
+export function buildContext(chunks: RetrievedChunk[]): string {
   return chunks.map((c) => `[Document: ${c.source}]\n${c.text}`).join('\n\n---\n\n');
 }
 
-function buildUserPrompt(question: string, chunks: RetrievedChunk[]): string {
+export function buildUserPrompt(question: string, chunks: RetrievedChunk[]): string {
   return `Context (retrieved passages, most relevant first):\n${buildContext(chunks)}\n\n---\n\nQuestion: ${question}`;
 }
 
+export const SYSTEM_PROMPT_TEXT = SYSTEM_PROMPT;
+
 /** Safely parse a JSON answer, tolerating stray markdown fences or prose around it. */
-function safeParseAnswer(text: string): AskResult {
+function safeParseAnswer(text: string, usage: RawTokenUsage): AskResult {
   let cleaned = text.trim();
   cleaned = cleaned.replace(/^```(?:json)?/i, '').replace(/```$/, '').trim();
 
@@ -48,12 +57,12 @@ function safeParseAnswer(text: string): AskResult {
               source: String(c.source ?? ''),
             }))
         : [];
-      return { answer: parsed.answer, citations, raw: text };
+      return { answer: parsed.answer, citations, usage, raw: text };
     }
   } catch {
     // fall through to plain-text fallback
   }
-  return { answer: text, citations: [], raw: text };
+  return { answer: text, citations: [], usage, raw: text };
 }
 
 async function callGemini(settings: ProviderSettings, question: string, chunks: RetrievedChunk[]): Promise<AskResult> {
@@ -81,7 +90,12 @@ async function callGemini(settings: ProviderSettings, question: string, chunks: 
   const data = await res.json();
   const text: string = data?.candidates?.[0]?.content?.parts?.map((p: { text?: string }) => p.text ?? '').join('') ?? '';
   if (!text) throw new Error('Gemini 未回傳任何內容，請確認模型名稱與 API Key 是否正確。');
-  return safeParseAnswer(text);
+
+  const usage: RawTokenUsage = {
+    inputTokens: Number(data?.usageMetadata?.promptTokenCount ?? 0),
+    outputTokens: Number(data?.usageMetadata?.candidatesTokenCount ?? 0),
+  };
+  return safeParseAnswer(text, usage);
 }
 
 async function callOpenAI(settings: ProviderSettings, question: string, chunks: RetrievedChunk[]): Promise<AskResult> {
@@ -113,7 +127,12 @@ async function callOpenAI(settings: ProviderSettings, question: string, chunks: 
   const data = await res.json();
   const text: string = data?.choices?.[0]?.message?.content ?? '';
   if (!text) throw new Error('OpenAI 未回傳任何內容，請確認模型名稱與 API Key 是否正確。');
-  return safeParseAnswer(text);
+
+  const usage: RawTokenUsage = {
+    inputTokens: Number(data?.usage?.prompt_tokens ?? 0),
+    outputTokens: Number(data?.usage?.completion_tokens ?? 0),
+  };
+  return safeParseAnswer(text, usage);
 }
 
 async function callAnthropic(settings: ProviderSettings, question: string, chunks: RetrievedChunk[]): Promise<AskResult> {
@@ -146,7 +165,12 @@ async function callAnthropic(settings: ProviderSettings, question: string, chunk
   const text: string =
     data?.content?.map((b: { type: string; text?: string }) => (b.type === 'text' ? b.text ?? '' : '')).join('') ?? '';
   if (!text) throw new Error('Anthropic 未回傳任何內容，請確認模型名稱與 API Key 是否正確。');
-  return safeParseAnswer(text);
+
+  const usage: RawTokenUsage = {
+    inputTokens: Number(data?.usage?.input_tokens ?? 0),
+    outputTokens: Number(data?.usage?.output_tokens ?? 0),
+  };
+  return safeParseAnswer(text, usage);
 }
 
 export async function askQuestion(settings: ProviderSettings, question: string, chunks: RetrievedChunk[]): Promise<AskResult> {
@@ -167,4 +191,13 @@ export async function askQuestion(settings: ProviderSettings, question: string, 
     default:
       throw new Error('未知的 AI 供應商');
   }
+}
+
+export function usageToTokenUsage(usage: RawTokenUsage, model: string) {
+  return {
+    inputTokens: usage.inputTokens,
+    outputTokens: usage.outputTokens,
+    cost: computeCost(model, usage.inputTokens, usage.outputTokens),
+    model,
+  };
 }

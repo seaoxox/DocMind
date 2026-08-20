@@ -118,3 +118,39 @@ export async function search(query: string, topK: number = TOP_K): Promise<Retri
   scored.sort((a, b) => b.score - a.score);
   return scored.slice(0, topK);
 }
+
+export interface IndexSourceSummary {
+  source: string;
+  chunkCount: number;
+  sampleText: string;
+  embeddingDims: number;
+}
+
+export interface IndexSummary {
+  totalChunks: number;
+  fingerprint: string | null;
+  sources: IndexSourceSummary[];
+}
+
+/** Reads back what's actually stored in IndexedDB, grouped by source document — for verification/debugging. */
+export async function getIndexSummary(): Promise<IndexSummary> {
+  const [chunks, fingerprint] = await Promise.all([getAllChunks(), getMeta(FINGERPRINT_KEY)]);
+
+  const bySource = new Map<string, StoredChunk[]>();
+  for (const chunk of chunks) {
+    const list = bySource.get(chunk.source) ?? [];
+    list.push(chunk);
+    bySource.set(chunk.source, list);
+  }
+
+  const sources: IndexSourceSummary[] = Array.from(bySource.entries())
+    .map(([source, list]) => ({
+      source,
+      chunkCount: list.length,
+      sampleText: list[0]?.text.slice(0, 160) ?? '',
+      embeddingDims: list[0]?.embedding.length ?? 0,
+    }))
+    .sort((a, b) => a.source.localeCompare(b.source));
+
+  return { totalChunks: chunks.length, fingerprint, sources };
+}

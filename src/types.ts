@@ -21,6 +21,13 @@ export interface RetrievedChunk {
   score: number;
 }
 
+export interface TokenUsage {
+  inputTokens: number;
+  outputTokens: number;
+  cost: number | null;
+  model: string;
+}
+
 export interface QuestionRecord {
   id: string;
   question: string;
@@ -28,6 +35,7 @@ export interface QuestionRecord {
   citations: Citation[];
   timestamp: number;
   retrievedSources: string[];
+  usage: TokenUsage | null;
 }
 
 export type AiProvider = 'gemini' | 'openai' | 'anthropic';

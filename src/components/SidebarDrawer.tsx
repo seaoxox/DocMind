@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from 'motion/react';
-import { X, MessageSquare, BookOpen, Settings as SettingsIcon, RotateCw } from 'lucide-react';
+import { X, MessageSquare, BookOpen, Settings as SettingsIcon, RotateCw, Coins } from 'lucide-react';
 import type { ViewMode } from '../types';
 import { cn } from '../lib/utils';
 import { ThemeToggle } from './ThemeToggle';
@@ -12,7 +12,8 @@ interface Props {
   theme: 'light' | 'dark';
   onToggleTheme: () => void;
   onOpenSettings: () => void;
-  onRebuildIndex: () => void;
+  onOpenIndexDetails: () => void;
+  sessionCost: number;
 }
 
 export function SidebarDrawer({
@@ -23,7 +24,8 @@ export function SidebarDrawer({
   theme,
   onToggleTheme,
   onOpenSettings,
-  onRebuildIndex,
+  onOpenIndexDetails,
+  sessionCost,
 }: Props) {
   return (
     <AnimatePresence>
@@ -140,7 +142,7 @@ export function SidebarDrawer({
 
               <button
                 onClick={() => {
-                  onRebuildIndex();
+                  onOpenIndexDetails();
                   onClose();
                 }}
                 className="w-full flex items-center gap-4 p-4 rounded-2xl transition-all font-bold text-left group text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800/50"
@@ -149,8 +151,8 @@ export function SidebarDrawer({
                   <RotateCw className="w-5 h-5" />
                 </div>
                 <div>
-                  <div className="text-sm">重建向量索引</div>
-                  <div className="text-[10px] font-medium opacity-60 text-slate-400">Rebuild Vector Index</div>
+                  <div className="text-sm">向量索引檢視／重建</div>
+                  <div className="text-[10px] font-medium opacity-60 text-slate-400">Inspect / Rebuild Index</div>
                 </div>
               </button>
 
@@ -166,6 +168,16 @@ export function SidebarDrawer({
             </div>
 
             <div className="p-8 border-t border-slate-100 dark:border-slate-800 space-y-4">
+              {sessionCost > 0 && (
+                <div className="flex items-center justify-between px-1 pb-2 border-b border-slate-100 dark:border-slate-800">
+                  <span className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-slate-400 dark:text-slate-500">
+                    <Coins className="w-3 h-3 text-amber-400" /> 本次工作階段花費
+                  </span>
+                  <span className="text-sm font-black text-slate-700 dark:text-slate-200">
+                    ${sessionCost < 0.01 ? sessionCost.toFixed(4) : sessionCost.toFixed(3)}
+                  </span>
+                </div>
+              )}
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-4 text-slate-400 dark:text-slate-500">
                   <div className="w-2 h-2 rounded-full bg-green-500 shadow-[0_0_10px_rgba(34,197,94,0.4)]" />

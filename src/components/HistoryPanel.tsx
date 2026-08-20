@@ -2,6 +2,10 @@ import { History } from 'lucide-react';
 import type { QuestionRecord } from '../types';
 import { cn } from '../lib/utils';
 
+function formatCost(v: number): string {
+  return v < 0.01 ? `$${v.toFixed(4)}` : `$${v.toFixed(3)}`;
+}
+
 export function HistoryItem({
   record,
   active,
@@ -22,8 +26,20 @@ export function HistoryItem({
       )}
     >
       <div className="font-medium mb-1 line-clamp-2">{record.question}</div>
-      <div className={cn('text-[10px] opacity-60', active ? 'text-indigo-100' : 'text-slate-400')}>
-        {new Date(record.timestamp).toLocaleTimeString()}
+      <div className="flex items-center justify-between gap-2">
+        <span className={cn('text-[10px] opacity-60', active ? 'text-indigo-100' : 'text-slate-400')}>
+          {new Date(record.timestamp).toLocaleTimeString()}
+        </span>
+        {record.usage?.cost != null && (
+          <span
+            className={cn(
+              'text-[10px] font-bold font-mono opacity-80',
+              active ? 'text-indigo-100' : 'text-amber-600 dark:text-amber-500'
+            )}
+          >
+            {formatCost(record.usage.cost)}
+          </span>
+        )}
       </div>
     </div>
   );
