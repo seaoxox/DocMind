@@ -1,15 +1,19 @@
 import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, KeyRound, Info, ChevronDown } from 'lucide-react';
-import type { AiProvider, ProviderSettings } from '../types';
+import { X, KeyRound, Info, ChevronDown, SlidersHorizontal, AlertTriangle } from 'lucide-react';
+import type { AiProvider, ProviderSettings, RagSettings } from '../types';
 import { DEFAULT_MODELS, MODEL_OPTIONS } from '../services/models';
+import { TOP_K as RECOMMENDED_TOP_K } from '../services/ragPipeline';
+import { RAG_TOP_K_BOUNDS } from '../services/storage';
 import { cn } from '../lib/utils';
 
 interface Props {
   open: boolean;
   settings: ProviderSettings;
+  ragSettings: RagSettings;
   onClose: () => void;
   onSave: (settings: ProviderSettings) => void;
+  onSaveRag: (settings: RagSettings) => void;
 }
 
 const PROVIDERS: { id: AiProvider; label: string; keyHint: string; keyUrl: string }[] = [
@@ -18,12 +22,24 @@ const PROVIDERS: { id: AiProvider; label: string; keyHint: string; keyUrl: strin
   { id: 'anthropic', label: 'Anthropic Claude', keyHint: 'sk-ant-...', keyUrl: 'https://console.anthropic.com/settings/keys' },
 ];
 
-export function SettingsModal({ open, settings, onClose, onSave }: Props) {
+function topKWarning(topK: number): string | null {
+  if (topK === RECOMMENDED_TOP_K) return null;
+  if (topK < RECOMMENDED_TOP_K) {
+    return `調低搜尋段落數可能導致遺漏跨文件的相關內容，回答完整度可能下降。建議值為 ${RECOMMENDED_TOP_K}。`;
+  }
+  return `調高搜尋段落數會增加送給 AI 的內容量，提升每次提問的 token 花費與回應時間。建議值為 ${RECOMMENDED_TOP_K}。`;
+}
+
+export function SettingsModal({ open, settings, ragSettings, onClose, onSave, onSaveRag }: Props) {
   const [draft, setDraft] = useState<ProviderSettings>(settings);
+  const [ragDraft, setRagDraft] = useState<RagSettings>(ragSettings);
 
   useEffect(() => {
-    if (open) setDraft(settings);
-  }, [open, settings]);
+    if (open) {
+      setDraft(settings);
+      setRagDraft(ragSettings);
+    }
+  }, [open, settings, ragSettings]);
 
   const handleProviderChange = (provider: AiProvider) => {
     setDraft((d) => ({ ...d, provider, model: DEFAULT_MODELS[provider] }));
@@ -31,8 +47,11 @@ export function SettingsModal({ open, settings, onClose, onSave }: Props) {
 
   const handleSave = () => {
     onSave(draft);
+    onSaveRag(ragDraft);
     onClose();
   };
+
+  const warning = topKWarning(ragDraft.topK);
 
   return (
     <AnimatePresence>
@@ -46,7 +65,7 @@ export function SettingsModal({ open, settings, onClose, onSave }: Props) {
         >
           <motion.div
             onClick={(e) => e.stopPropagation()}
-            className="w-full max-w-md rounded-2xl border border-slate-200/80 bg-white p-6 shadow-2xl dark:border-slate-800 dark:bg-slate-900"
+            className="w-full max-w-md rounded-2xl border border-slate-200/80 bg-white p-6 shadow-2xl dark:border-slate-800 dark:bg-slate-900 max-h-[90vh] overflow-y-auto"
             initial={{ opacity: 0, y: 16, scale: 0.98 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 8, scale: 0.98 }}
@@ -120,6 +139,48 @@ export function SettingsModal({ open, settings, onClose, onSave }: Props) {
                 <p className="mt-1.5 text-[11px] text-slate-400 dark:text-slate-500">
                   快速：回應更即時、成本較低；基礎：推理品質較佳，適合較複雜的問題。
                 </p>
+              </div>
+
+              <div className="pt-2 border-t border-slate-100 dark:border-slate-800">
+                <div className="mt-4 mb-1.5 flex items-center justify-between">
+                  <label className="flex items-center gap-1.5 text-xs font-medium text-slate-500 dark:text-slate-400">
+                    <SlidersHorizontal size={12} /> 搜尋段落數（Top-K）
+                  </label>
+                  <span className="text-xs font-bold text-slate-700 dark:text-slate-200">{ragDraft.topK}</span>
+                </div>
+                <input
+                  type="range"
+                  min={RAG_TOP_K_BOUNDS.min}
+                  max={RAG_TOP_K_BOUNDS.max}
+                  step={1}
+                  value={ragDraft.topK}
+                  onChange={(e) => setRagDraft({ topK: Number(e.target.value) })}
+                  className="w-full accent-indigo-600"
+                />
+                <div className="flex items-center justify-between text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">
+                  <span>{RAG_TOP_K_BOUNDS.min}（較少）</span>
+                  <span>建議值 {RECOMMENDED_TOP_K}</span>
+                  <span>{RAG_TOP_K_BOUNDS.max}（較多）</span>
+                </div>
+                <p className="mt-1.5 text-[11px] text-slate-400 dark:text-slate-500">
+                  每次提問時，向量搜尋會取出最相關的 N 段內容交給 AI 作答。
+                </p>
+
+                <AnimatePresence>
+                  {warning && (
+                    <motion.div
+                      initial={{ opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: 'auto' }}
+                      exit={{ opacity: 0, height: 0 }}
+                      className="overflow-hidden"
+                    >
+                      <div className="mt-2.5 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-2.5 text-[11px] leading-relaxed text-amber-700 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-400">
+                        <AlertTriangle size={13} className="mt-0.5 shrink-0" />
+                        <span>{warning}</span>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </div>
 
               <p className="rounded-lg bg-slate-50 p-3 text-xs leading-relaxed text-slate-500 dark:bg-slate-800/60 dark:text-slate-400">

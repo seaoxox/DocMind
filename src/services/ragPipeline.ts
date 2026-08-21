@@ -5,7 +5,7 @@ import { clearChunks, countChunks, getAllChunks, getMeta, putChunks, setMeta, ty
 import { uid } from '../lib/utils';
 
 const FINGERPRINT_KEY = 'guidance-fingerprint';
-const TOP_K = 16;
+export const TOP_K = 16;
 
 export type IndexStatus =
   | { phase: 'idle' }

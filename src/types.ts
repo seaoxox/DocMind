@@ -52,6 +52,10 @@ export interface ProviderSettings {
   model: string;
 }
 
+export interface RagSettings {
+  topK: number;
+}
+
 export interface ManualFileEntry {
   filename: string;
   path: string; // relative path under manual_md/, used for fetch

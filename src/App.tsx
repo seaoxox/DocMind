@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Menu, History as HistoryIcon, X, Quote } from 'lucide-react';
 
-import type { AppDocument, ManualChapter, ProviderSettings, QuestionRecord, ViewMode, Citation } from './types';
+import type { AppDocument, ManualChapter, ProviderSettings, QuestionRecord, RagSettings, ViewMode, Citation } from './types';
 import { cn, taipeiDateString, uid } from './lib/utils';
 import { estimateTokens } from './lib/tokenEstimate';
 import { parseFromUrl } from './services/docParser';
@@ -13,6 +13,8 @@ import { ensureIndex, search, type IndexStatus } from './services/ragPipeline';
 import {
   loadSettings,
   saveSettings,
+  loadRagSettings,
+  saveRagSettings,
   loadHistory,
   saveHistory,
   loadTheme,
@@ -54,10 +56,15 @@ export default function App() {
 
   // ---- Settings ----
   const [settings, setSettings] = useState<ProviderSettings>(loadSettings());
+  const [ragSettings, setRagSettings] = useState<RagSettings>(loadRagSettings());
   const [settingsOpen, setSettingsOpen] = useState(false);
   const handleSaveSettings = (s: ProviderSettings) => {
     setSettings(s);
     saveSettings(s);
+  };
+  const handleSaveRagSettings = (s: RagSettings) => {
+    setRagSettings(s);
+    saveRagSettings(s);
   };
 
   // ---- View mode / navigation ----
@@ -157,7 +164,7 @@ export default function App() {
     let cancelled = false;
     const handle = setTimeout(async () => {
       try {
-        const chunks = await search(q);
+        const chunks = await search(q, ragSettings.topK);
         if (cancelled) return;
         const contextTokens = chunks.reduce((sum, c) => sum + estimateTokens(c.text), 0);
         const inputTokens = contextTokens + estimateTokens(SYSTEM_PROMPT_TEXT) + estimateTokens(q);
@@ -177,7 +184,7 @@ export default function App() {
       cancelled = true;
       clearTimeout(handle);
     };
-  }, [question, indexStatus.phase, settings.model]);
+  }, [question, indexStatus.phase, settings.model, ragSettings.topK]);
 
   const handleAsk = async () => {
     if (!question.trim() || asking) return;
@@ -189,7 +196,7 @@ export default function App() {
     setAsking(true);
     const q = question;
     try {
-      const chunks = await search(q);
+      const chunks = await search(q, ragSettings.topK);
       const result = await askQuestion(settings, q, chunks);
       const record: QuestionRecord = {
         id: uid('qr'),
@@ -237,7 +244,14 @@ export default function App() {
         message="這會清除目前已建立的向量索引，並重新切割、嵌入所有指引文件，過程中無法進行問答，可能需要一些時間。"
         secondMessage="請再次確認：此操作無法復原，將立即清除現有索引並重新開始建立。確定要繼續嗎？"
       />
-      <SettingsModal open={settingsOpen} settings={settings} onClose={() => setSettingsOpen(false)} onSave={handleSaveSettings} />
+      <SettingsModal
+        open={settingsOpen}
+        settings={settings}
+        ragSettings={ragSettings}
+        onClose={() => setSettingsOpen(false)}
+        onSave={handleSaveSettings}
+        onSaveRag={handleSaveRagSettings}
+      />
       <SidebarDrawer
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}

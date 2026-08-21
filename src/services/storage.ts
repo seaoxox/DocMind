@@ -1,8 +1,10 @@
-import type { ProviderSettings, QuestionRecord } from '../types';
+import type { ProviderSettings, QuestionRecord, RagSettings } from '../types';
 import { DEFAULT_MODELS } from './models';
+import { TOP_K } from './ragPipeline';
 
 const KEYS = {
   settings: 'docmind.settings',
+  rag: 'docmind.rag',
   history: 'docmind.history',
   theme: 'docmind.theme',
   disclaimer: 'disclaimerAcceptedDate',
@@ -20,6 +22,30 @@ export function loadSettings(): ProviderSettings {
 
 export function saveSettings(settings: ProviderSettings) {
   localStorage.setItem(KEYS.settings, JSON.stringify(settings));
+}
+
+export const RAG_TOP_K_BOUNDS = { min: 4, max: 32 } as const;
+const MIN_TOP_K = RAG_TOP_K_BOUNDS.min;
+const MAX_TOP_K = RAG_TOP_K_BOUNDS.max;
+
+export function loadRagSettings(): RagSettings {
+  try {
+    const raw = localStorage.getItem(KEYS.rag);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      const topK = Number(parsed?.topK);
+      if (Number.isFinite(topK)) {
+        return { topK: Math.min(MAX_TOP_K, Math.max(MIN_TOP_K, Math.round(topK))) };
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+  return { topK: TOP_K };
+}
+
+export function saveRagSettings(settings: RagSettings) {
+  localStorage.setItem(KEYS.rag, JSON.stringify(settings));
 }
 
 export function loadHistory(): QuestionRecord[] {
