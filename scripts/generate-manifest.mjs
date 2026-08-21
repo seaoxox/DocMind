@@ -2,6 +2,12 @@
 // which the front end fetches at runtime to know which bundled documents are
 // available as static files (used to build the local vector index).
 //
+// File sizes are captured here at BUILD TIME (not measured from a runtime fetch),
+// so the vector-index "has anything changed?" fingerprint stays stable even when a
+// CDN edge node or the browser's HTTP cache briefly serves a stale copy of a document
+// body after deployment — manifest.json itself is always fetched with cache: 'no-store',
+// so it's the one source of truth we can trust to detect real content changes.
+//
 // Run automatically via `npm run build` (see package.json "prebuild" script),
 // or manually with `node scripts/generate-manifest.mjs`.
 
@@ -13,11 +19,13 @@ const PUBLIC = join(ROOT, 'public');
 
 const SKIP = new Set(['.gitkeep', '.DS_Store']);
 
-function listFiles(dir) {
+function listFilesWithSize(dir) {
   if (!existsSync(dir)) return [];
   return readdirSync(dir)
     .filter((f) => !SKIP.has(f))
-    .filter((f) => statSync(join(dir, f)).isFile());
+    .map((name) => ({ name, stat: statSync(join(dir, name)) }))
+    .filter(({ stat }) => stat.isFile())
+    .map(({ name, stat }) => ({ name, bytes: stat.size }));
 }
 
 function classifyManualFile(filename) {
@@ -36,14 +44,15 @@ function buildManualStructure() {
   return folders
     .sort()
     .map((folder) => {
-      const files = listFiles(join(manualDir, folder)).sort();
+      const files = listFilesWithSize(join(manualDir, folder)).sort((a, b) => a.name.localeCompare(b.name));
       return {
         folder,
         title: folder,
-        files: files.map((filename) => ({
-          filename,
-          path: `manual_md/${folder}/${filename}`,
-          type: classifyManualFile(filename),
+        files: files.map(({ name, bytes }) => ({
+          filename: name,
+          path: `manual_md/${folder}/${name}`,
+          type: classifyManualFile(name),
+          bytes,
         })),
       };
     })
@@ -51,7 +60,7 @@ function buildManualStructure() {
 }
 
 const manifest = {
-  guidanceFiles: listFiles(join(PUBLIC, 'guidance_docs')).sort(),
+  guidanceFiles: listFilesWithSize(join(PUBLIC, 'guidance_docs')).sort((a, b) => a.name.localeCompare(b.name)),
   manual: buildManualStructure(),
 };
 

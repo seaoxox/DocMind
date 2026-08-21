@@ -1,4 +1,4 @@
-import type { AppDocument, RetrievedChunk } from '../types';
+import type { AppDocument, Manifest, RetrievedChunk } from '../types';
 import { chunkDocuments } from './chunking';
 import { embedQuery, embedTexts, type EmbeddingProgress } from './embeddingService';
 import { clearChunks, countChunks, getAllChunks, getMeta, putChunks, setMeta, type StoredChunk } from './vectorStore';
@@ -14,12 +14,21 @@ export type IndexStatus =
   | { phase: 'ready'; chunkCount: number }
   | { phase: 'error'; message: string };
 
-/** Cheap, deterministic fingerprint of the current guidance corpus (name + length per doc). */
-async function computeFingerprint(docs: AppDocument[]): Promise<string> {
-  const summary = docs
-    .map((d) => `${d.name}:${d.sizeChars}`)
-    .sort()
-    .join('|');
+/**
+ * Deterministic fingerprint of the current guidance corpus, computed ONLY from manifest.json
+ * (filenames + build-time byte sizes) — never from a runtime fetch of the actual document
+ * bodies. manifest.json is always fetched with `cache: 'no-store'`, so it's the one source we
+ * can trust to reflect the latest deployment; the documents themselves may still be served
+ * stale for a few minutes by a CDN edge node or the browser's HTTP cache after a fresh deploy.
+ * Basing the fingerprint on those would cause spurious "content changed" rebuilds until every
+ * cache layer catches up — which is exactly what a manifest-based fingerprint avoids.
+ */
+async function computeFingerprint(manifest: Manifest): Promise<string> {
+  const guidancePart = manifest.guidanceFiles.map((f) => `${f.name}:${f.bytes}`).sort();
+  const manualPart = manifest.manual.flatMap((chapter) =>
+    chapter.files.map((f) => `${chapter.folder}/${f.filename}:${f.bytes}`)
+  ).sort();
+  const summary = [...guidancePart, ...manualPart].join('|');
   const encoded = new TextEncoder().encode(summary);
   const digest = await crypto.subtle.digest('SHA-256', encoded);
   return Array.from(new Uint8Array(digest))
@@ -31,22 +40,32 @@ let cachedChunks: StoredChunk[] | null = null;
 
 /**
  * Ensures the local vector index reflects the current set of guidance/manual documents.
- * On first run (or whenever the underlying documents change), this chunks every document,
- * embeds each chunk locally via a Hugging Face model, and persists the vectors to IndexedDB.
- * On subsequent runs with unchanged documents, this is a fast no-op.
+ * On first run (or whenever manifest.json indicates the underlying documents have changed),
+ * this chunks every document, embeds each chunk locally via a Hugging Face model, and persists
+ * the vectors to IndexedDB. On subsequent runs with an unchanged manifest, this is a fast no-op.
  */
 export async function ensureIndex(
   docs: AppDocument[],
+  manifest: Manifest,
   onStatus: (status: IndexStatus) => void,
   forceRebuild = false
 ): Promise<void> {
   onStatus({ phase: 'checking' });
 
-  const fingerprint = await computeFingerprint(docs);
+  let fingerprint: string | null = null;
+  try {
+    fingerprint = await computeFingerprint(manifest);
+  } catch (err) {
+    // If we can't compute a fingerprint for some reason (e.g. an unusual hosting
+    // environment without Web Crypto), don't treat that as "documents changed" —
+    // fall back to whatever index already exists rather than needlessly rebuilding.
+    console.warn('無法計算文件指紋，將略過變更偵測：', err);
+  }
+
   const storedFingerprint = await getMeta(FINGERPRINT_KEY);
   const existingCount = await countChunks();
 
-  if (!forceRebuild && storedFingerprint === fingerprint && existingCount > 0) {
+  if (!forceRebuild && existingCount > 0 && (fingerprint === null || storedFingerprint === fingerprint)) {
     cachedChunks = null; // will lazy-load from IndexedDB on first search
     onStatus({ phase: 'ready', chunkCount: existingCount });
     return;
@@ -57,7 +76,7 @@ export async function ensureIndex(
     const chunks = chunkDocuments(docs.map((d) => ({ content: d.content, name: d.name })));
 
     if (chunks.length === 0) {
-      await setMeta(FINGERPRINT_KEY, fingerprint);
+      if (fingerprint !== null) await setMeta(FINGERPRINT_KEY, fingerprint);
       onStatus({ phase: 'ready', chunkCount: 0 });
       return;
     }
@@ -92,7 +111,7 @@ export async function ensureIndex(
       onStatus({ phase: 'embedding', done: Math.min(i + BATCH_SIZE, chunks.length), total: chunks.length, currentSource });
     }
 
-    await setMeta(FINGERPRINT_KEY, fingerprint);
+    if (fingerprint !== null) await setMeta(FINGERPRINT_KEY, fingerprint);
     cachedChunks = null;
     onStatus({ phase: 'ready', chunkCount: chunks.length });
   } catch (err) {

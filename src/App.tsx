@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Menu, History as HistoryIcon, X, Quote } from 'lucide-react';
 
-import type { AppDocument, ManualChapter, ProviderSettings, QuestionRecord, RagSettings, StoredProviderSettings, ViewMode, Citation } from './types';
+import type { AppDocument, Manifest, ManualChapter, ProviderSettings, QuestionRecord, RagSettings, StoredProviderSettings, ViewMode, Citation } from './types';
 import { cn, taipeiDateString, uid } from './lib/utils';
 import { estimateTokens } from './lib/tokenEstimate';
 import { parseFromUrl } from './services/docParser';
@@ -80,10 +80,11 @@ export default function App() {
   const [rebuildConfirmOpen, setRebuildConfirmOpen] = useState(false);
   const [isRebuild, setIsRebuild] = useState(false);
   const allDocsRef = useRef<AppDocument[]>([]);
+  const manifestRef = useRef<Manifest>({ guidanceFiles: [], manual: [] });
 
   const runIndexing = async (forceRebuild = false) => {
     setIsRebuild(forceRebuild);
-    await ensureIndex(allDocsRef.current, setIndexStatus, forceRebuild);
+    await ensureIndex(allDocsRef.current, manifestRef.current, setIndexStatus, forceRebuild);
   };
 
   const requestRebuild = () => setRebuildConfirmOpen(true);
@@ -93,9 +94,10 @@ export default function App() {
     (async () => {
       try {
         const manifest = await loadManifest();
+        manifestRef.current = manifest;
 
         const guidanceResults = await Promise.allSettled(
-          manifest.guidanceFiles.map((name) => parseFromUrl(`${BASE}guidance_docs/${name}`, name, 'guidance'))
+          manifest.guidanceFiles.map((f) => parseFromUrl(`${BASE}guidance_docs/${f.name}`, f.name, 'guidance'))
         );
 
         const manualFileJobs: Promise<AppDocument>[] = [];
@@ -119,7 +121,7 @@ export default function App() {
         allDocsRef.current = [...guidanceDocs, ...manualDocs];
         setManualChapters(manifest.manual);
 
-        await ensureIndex(allDocsRef.current, setIndexStatus);
+        await ensureIndex(allDocsRef.current, manifestRef.current, setIndexStatus);
       } catch (err) {
         if (!cancelled) {
           setIndexStatus({ phase: 'error', message: err instanceof Error ? err.message : '文件載入失敗。' });

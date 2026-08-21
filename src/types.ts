@@ -66,6 +66,7 @@ export interface ManualFileEntry {
   filename: string;
   path: string; // relative path under manual_md/, used for fetch
   type: 'markdown' | 'image' | 'other';
+  bytes: number; // captured at build time from disk, stable across CDN/browser cache staleness
 }
 
 export interface ManualChapter {
@@ -74,8 +75,13 @@ export interface ManualChapter {
   files: ManualFileEntry[];
 }
 
+export interface ManifestFile {
+  name: string;
+  bytes: number; // captured at build time from disk
+}
+
 export interface Manifest {
-  guidanceFiles: string[];
+  guidanceFiles: ManifestFile[];
   manual: ManualChapter[];
 }
 
