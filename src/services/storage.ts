@@ -1,4 +1,4 @@
-import type { ProviderSettings, QuestionRecord, RagSettings } from '../types';
+import type { AiProvider, ProviderSettings, QuestionRecord, RagSettings, StoredProviderSettings } from '../types';
 import { DEFAULT_MODELS } from './models';
 import { TOP_K } from './ragPipeline';
 
@@ -10,18 +10,66 @@ const KEYS = {
   disclaimer: 'disclaimerAcceptedDate',
 };
 
-export function loadSettings(): ProviderSettings {
+const PROVIDERS: AiProvider[] = ['gemini', 'openai', 'anthropic'];
+
+function emptyKeyMap(): Record<AiProvider, string> {
+  return { gemini: '', openai: '', anthropic: '' };
+}
+
+function defaultModelMap(): Record<AiProvider, string> {
+  return { ...DEFAULT_MODELS };
+}
+
+export function loadSettings(): StoredProviderSettings {
+  const fallback: StoredProviderSettings = {
+    activeProvider: 'gemini',
+    apiKeys: emptyKeyMap(),
+    models: defaultModelMap(),
+  };
+
   try {
     const raw = localStorage.getItem(KEYS.settings);
-    if (raw) return JSON.parse(raw);
+    if (!raw) return fallback;
+    const parsed = JSON.parse(raw);
+
+    // New format: already has per-provider maps.
+    if (parsed && typeof parsed === 'object' && parsed.apiKeys && parsed.models) {
+      const apiKeys = emptyKeyMap();
+      const models = defaultModelMap();
+      for (const p of PROVIDERS) {
+        if (typeof parsed.apiKeys[p] === 'string') apiKeys[p] = parsed.apiKeys[p];
+        if (typeof parsed.models[p] === 'string' && parsed.models[p]) models[p] = parsed.models[p];
+      }
+      const activeProvider: AiProvider = PROVIDERS.includes(parsed.activeProvider) ? parsed.activeProvider : 'gemini';
+      return { activeProvider, apiKeys, models };
+    }
+
+    // Legacy format from before per-provider storage: { provider, apiKey, model }.
+    if (parsed && typeof parsed === 'object' && typeof parsed.apiKey === 'string' && typeof parsed.provider === 'string') {
+      const apiKeys = emptyKeyMap();
+      const models = defaultModelMap();
+      const provider: AiProvider = PROVIDERS.includes(parsed.provider) ? parsed.provider : 'gemini';
+      apiKeys[provider] = parsed.apiKey;
+      if (typeof parsed.model === 'string' && parsed.model) models[provider] = parsed.model;
+      return { activeProvider: provider, apiKeys, models };
+    }
   } catch {
     /* ignore */
   }
-  return { provider: 'gemini', apiKey: '', model: DEFAULT_MODELS.gemini };
+  return fallback;
 }
 
-export function saveSettings(settings: ProviderSettings) {
+export function saveSettings(settings: StoredProviderSettings) {
   localStorage.setItem(KEYS.settings, JSON.stringify(settings));
+}
+
+/** Resolves the currently-active provider's key/model into the flat shape aiService expects. */
+export function resolveActiveSettings(stored: StoredProviderSettings): ProviderSettings {
+  return {
+    provider: stored.activeProvider,
+    apiKey: stored.apiKeys[stored.activeProvider] ?? '',
+    model: stored.models[stored.activeProvider] || DEFAULT_MODELS[stored.activeProvider],
+  };
 }
 
 export const RAG_TOP_K_BOUNDS = { min: 4, max: 32 } as const;

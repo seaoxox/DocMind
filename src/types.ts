@@ -52,6 +52,12 @@ export interface ProviderSettings {
   model: string;
 }
 
+export interface StoredProviderSettings {
+  activeProvider: AiProvider;
+  apiKeys: Record<AiProvider, string>;
+  models: Record<AiProvider, string>;
+}
+
 export interface RagSettings {
   topK: number;
 }

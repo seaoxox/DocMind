@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Menu, History as HistoryIcon, X, Quote } from 'lucide-react';
 
-import type { AppDocument, ManualChapter, ProviderSettings, QuestionRecord, RagSettings, ViewMode, Citation } from './types';
+import type { AppDocument, ManualChapter, ProviderSettings, QuestionRecord, RagSettings, StoredProviderSettings, ViewMode, Citation } from './types';
 import { cn, taipeiDateString, uid } from './lib/utils';
 import { estimateTokens } from './lib/tokenEstimate';
 import { parseFromUrl } from './services/docParser';
@@ -13,6 +13,7 @@ import { ensureIndex, search, type IndexStatus } from './services/ragPipeline';
 import {
   loadSettings,
   saveSettings,
+  resolveActiveSettings,
   loadRagSettings,
   saveRagSettings,
   loadHistory,
@@ -55,11 +56,12 @@ export default function App() {
   };
 
   // ---- Settings ----
-  const [settings, setSettings] = useState<ProviderSettings>(loadSettings());
+  const [storedSettings, setStoredSettings] = useState<StoredProviderSettings>(loadSettings());
   const [ragSettings, setRagSettings] = useState<RagSettings>(loadRagSettings());
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const handleSaveSettings = (s: ProviderSettings) => {
-    setSettings(s);
+  const settings: ProviderSettings = useMemo(() => resolveActiveSettings(storedSettings), [storedSettings]);
+  const handleSaveSettings = (s: StoredProviderSettings) => {
+    setStoredSettings(s);
     saveSettings(s);
   };
   const handleSaveRagSettings = (s: RagSettings) => {
@@ -246,7 +248,7 @@ export default function App() {
       />
       <SettingsModal
         open={settingsOpen}
-        settings={settings}
+        settings={storedSettings}
         ragSettings={ragSettings}
         onClose={() => setSettingsOpen(false)}
         onSave={handleSaveSettings}

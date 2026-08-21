@@ -1,7 +1,7 @@
 import { useEffect, useState, type CSSProperties } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, KeyRound, Info, ChevronDown, SlidersHorizontal, AlertTriangle } from 'lucide-react';
-import type { AiProvider, ProviderSettings, RagSettings } from '../types';
+import { X, KeyRound, Info, ChevronDown, SlidersHorizontal, AlertTriangle, CheckCircle2 } from 'lucide-react';
+import type { AiProvider, RagSettings, StoredProviderSettings } from '../types';
 import { DEFAULT_MODELS, MODEL_OPTIONS } from '../services/models';
 import { TOP_K as RECOMMENDED_TOP_K } from '../services/ragPipeline';
 import { RAG_TOP_K_BOUNDS } from '../services/storage';
@@ -9,10 +9,10 @@ import { cn } from '../lib/utils';
 
 interface Props {
   open: boolean;
-  settings: ProviderSettings;
+  settings: StoredProviderSettings;
   ragSettings: RagSettings;
   onClose: () => void;
-  onSave: (settings: ProviderSettings) => void;
+  onSave: (settings: StoredProviderSettings) => void;
   onSaveRag: (settings: RagSettings) => void;
 }
 
@@ -31,7 +31,7 @@ function topKWarning(topK: number): string | null {
 }
 
 export function SettingsModal({ open, settings, ragSettings, onClose, onSave, onSaveRag }: Props) {
-  const [draft, setDraft] = useState<ProviderSettings>(settings);
+  const [draft, setDraft] = useState<StoredProviderSettings>(settings);
   const [ragDraft, setRagDraft] = useState<RagSettings>(ragSettings);
 
   useEffect(() => {
@@ -41,8 +41,21 @@ export function SettingsModal({ open, settings, ragSettings, onClose, onSave, on
     }
   }, [open, settings, ragSettings]);
 
+  const activeProvider = draft.activeProvider;
+  const activeApiKey = draft.apiKeys[activeProvider] ?? '';
+  const activeModel = draft.models[activeProvider] || DEFAULT_MODELS[activeProvider];
+  const activeMeta = PROVIDERS.find((p) => p.id === activeProvider)!;
+
   const handleProviderChange = (provider: AiProvider) => {
-    setDraft((d) => ({ ...d, provider, model: DEFAULT_MODELS[provider] }));
+    setDraft((d) => ({ ...d, activeProvider: provider }));
+  };
+
+  const handleApiKeyChange = (value: string) => {
+    setDraft((d) => ({ ...d, apiKeys: { ...d.apiKeys, [activeProvider]: value } }));
+  };
+
+  const handleModelChange = (value: string) => {
+    setDraft((d) => ({ ...d, models: { ...d.models, [activeProvider]: value } }));
   };
 
   const handleSave = () => {
@@ -82,36 +95,50 @@ export function SettingsModal({ open, settings, ragSettings, onClose, onSave, on
 
             <div className="space-y-4">
               <div>
-                <label className="mb-1.5 block text-xs font-medium text-slate-500 dark:text-slate-400">供應商</label>
+                <div className="mb-1.5 flex items-center justify-between">
+                  <label className="block text-xs font-medium text-slate-500 dark:text-slate-400">供應商</label>
+                  <span className="text-[10px] text-slate-400 dark:text-slate-500">每家的 API Key 分開儲存</span>
+                </div>
                 <div className="grid grid-cols-3 gap-2">
-                  {PROVIDERS.map((p) => (
-                    <button
-                      key={p.id}
-                      onClick={() => handleProviderChange(p.id)}
-                      className={cn(
-                        'rounded-lg border px-2 py-2 text-xs font-medium transition',
-                        draft.provider === p.id
-                          ? 'border-indigo-600 bg-indigo-600/10 text-indigo-700 dark:border-indigo-500 dark:bg-indigo-500/15 dark:text-indigo-300'
-                          : 'border-slate-200 text-slate-600 hover:border-slate-300 dark:border-slate-700 dark:text-slate-400 dark:hover:border-slate-600'
-                      )}
-                    >
-                      {p.label}
-                    </button>
-                  ))}
+                  {PROVIDERS.map((p) => {
+                    const hasKey = (draft.apiKeys[p.id] ?? '').trim().length > 0;
+                    return (
+                      <button
+                        key={p.id}
+                        onClick={() => handleProviderChange(p.id)}
+                        className={cn(
+                          'relative rounded-lg border px-2 py-2 text-xs font-medium transition',
+                          activeProvider === p.id
+                            ? 'border-indigo-600 bg-indigo-600/10 text-indigo-700 dark:border-indigo-500 dark:bg-indigo-500/15 dark:text-indigo-300'
+                            : 'border-slate-200 text-slate-600 hover:border-slate-300 dark:border-slate-700 dark:text-slate-400 dark:hover:border-slate-600'
+                        )}
+                      >
+                        {hasKey && (
+                          <CheckCircle2
+                            size={12}
+                            className="absolute -top-1.5 -right-1.5 rounded-full bg-white text-emerald-500 dark:bg-slate-900"
+                          />
+                        )}
+                        {p.label}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
 
               <div>
-                <label className="mb-1.5 block text-xs font-medium text-slate-500 dark:text-slate-400">API Key</label>
+                <label className="mb-1.5 block text-xs font-medium text-slate-500 dark:text-slate-400">
+                  {activeMeta.label} API Key
+                </label>
                 <input
                   type="password"
-                  value={draft.apiKey}
-                  onChange={(e) => setDraft((d) => ({ ...d, apiKey: e.target.value }))}
-                  placeholder={PROVIDERS.find((p) => p.id === draft.provider)?.keyHint}
+                  value={activeApiKey}
+                  onChange={(e) => handleApiKeyChange(e.target.value)}
+                  placeholder={activeMeta.keyHint}
                   className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-indigo-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
                 />
                 <a
-                  href={PROVIDERS.find((p) => p.id === draft.provider)?.keyUrl}
+                  href={activeMeta.keyUrl}
                   target="_blank"
                   rel="noreferrer"
                   className="mt-1.5 inline-flex items-center gap-1 text-xs text-indigo-600 hover:underline dark:text-indigo-400"
@@ -124,11 +151,11 @@ export function SettingsModal({ open, settings, ragSettings, onClose, onSave, on
                 <label className="mb-1.5 block text-xs font-medium text-slate-500 dark:text-slate-400">模型</label>
                 <div className="relative">
                   <select
-                    value={draft.model || DEFAULT_MODELS[draft.provider]}
-                    onChange={(e) => setDraft((d) => ({ ...d, model: e.target.value }))}
+                    value={activeModel}
+                    onChange={(e) => handleModelChange(e.target.value)}
                     className="w-full appearance-none rounded-lg border border-slate-200 bg-white px-3 py-2 pr-8 text-sm outline-none focus:border-indigo-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
                   >
-                    {MODEL_OPTIONS[draft.provider].map((m) => (
+                    {MODEL_OPTIONS[activeProvider].map((m) => (
                       <option key={m.id} value={m.id}>
                         {m.label}（{m.tier}）
                       </option>
@@ -199,8 +226,9 @@ export function SettingsModal({ open, settings, ragSettings, onClose, onSave, on
               </div>
 
               <p className="rounded-lg bg-slate-50 p-3 text-xs leading-relaxed text-slate-500 dark:bg-slate-800/60 dark:text-slate-400">
-                您的 API Key 僅儲存於瀏覽器本機（localStorage），不會傳送至任何第三方伺服器，僅在您提問時直接呼叫所選供應商的官方
-                API。若使用 Anthropic，部分帳戶可能因瀏覽器 CORS 限制而無法直接呼叫，建議優先使用 Gemini 或 OpenAI。
+                三家供應商的 API Key 會分別儲存在瀏覽器本機（localStorage），切換供應商不會互相覆蓋、也不需要重新輸入。所有 Key
+                皆不會傳送至任何第三方伺服器，僅在您提問時直接呼叫所選供應商的官方 API。若使用 Anthropic，部分帳戶可能因瀏覽器
+                CORS 限制而無法直接呼叫，建議優先使用 Gemini 或 OpenAI。
               </p>
             </div>
 
