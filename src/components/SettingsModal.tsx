@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type CSSProperties } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { X, KeyRound, Info, ChevronDown, SlidersHorizontal, AlertTriangle } from 'lucide-react';
 import type { AiProvider, ProviderSettings, RagSettings } from '../types';
@@ -155,8 +155,23 @@ export function SettingsModal({ open, settings, ragSettings, onClose, onSave, on
                   step={1}
                   value={ragDraft.topK}
                   onChange={(e) => setRagDraft({ topK: Number(e.target.value) })}
-                  className="w-full accent-indigo-600"
+                  className="slider-fancy w-full"
+                  style={
+                    {
+                      '--slider-percent': `${((ragDraft.topK - RAG_TOP_K_BOUNDS.min) / (RAG_TOP_K_BOUNDS.max - RAG_TOP_K_BOUNDS.min)) * 100}%`,
+                    } as CSSProperties
+                  }
                 />
+                <div className="relative h-3">
+                  <div
+                    className="absolute top-0 flex flex-col items-center -translate-x-1/2 pointer-events-none"
+                    style={{
+                      left: `${((RECOMMENDED_TOP_K - RAG_TOP_K_BOUNDS.min) / (RAG_TOP_K_BOUNDS.max - RAG_TOP_K_BOUNDS.min)) * 100}%`,
+                    }}
+                  >
+                    <div className="w-0.5 h-2 rounded-full bg-slate-300 dark:bg-slate-600" />
+                  </div>
+                </div>
                 <div className="flex items-center justify-between text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">
                   <span>{RAG_TOP_K_BOUNDS.min}（較少）</span>
                   <span>建議值 {RECOMMENDED_TOP_K}</span>

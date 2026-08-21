@@ -36,3 +36,72 @@ body {
 .prose :where(code):not(:where([class~="not-prose"] *))::after {
   content: "";
 }
+
+/* Rounded, filled-track range slider (used for Top-K etc.) */
+.slider-fancy {
+  --slider-track-color: #e2e8f0;
+  --slider-fill-color: #4f46e5;
+  --slider-percent: 50%;
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 8px;
+  border-radius: 9999px;
+  background: linear-gradient(
+    to right,
+    var(--slider-fill-color) 0%,
+    var(--slider-fill-color) var(--slider-percent),
+    var(--slider-track-color) var(--slider-percent),
+    var(--slider-track-color) 100%
+  );
+  outline: none;
+  cursor: pointer;
+  transition: box-shadow 0.15s ease;
+}
+.dark .slider-fancy {
+  --slider-track-color: #334155;
+}
+
+.slider-fancy::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 9999px;
+  background: #ffffff;
+  border: 3px solid var(--slider-fill-color);
+  box-shadow: 0 2px 8px rgba(79, 70, 229, 0.35);
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.slider-fancy::-webkit-slider-thumb:hover {
+  transform: scale(1.15);
+}
+.slider-fancy::-webkit-slider-thumb:active {
+  transform: scale(1.25);
+  box-shadow: 0 2px 12px rgba(79, 70, 229, 0.5);
+}
+
+.slider-fancy::-moz-range-track {
+  height: 8px;
+  border-radius: 9999px;
+  background: var(--slider-track-color);
+}
+.slider-fancy::-moz-range-progress {
+  height: 8px;
+  border-radius: 9999px;
+  background: var(--slider-fill-color);
+}
+.slider-fancy::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  border-radius: 9999px;
+  background: #ffffff;
+  border: 3px solid var(--slider-fill-color);
+  box-shadow: 0 2px 8px rgba(79, 70, 229, 0.35);
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.slider-fancy::-moz-range-thumb:hover {
+  transform: scale(1.15);
+}
