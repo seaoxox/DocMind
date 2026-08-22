@@ -1,10 +1,19 @@
 export type DocType = 'markdown' | 'word' | 'pdf' | 'text' | 'unknown';
 export type DocCategory = 'guidance' | 'manual';
 
+/** A single structural unit of a document (one paragraph or list item), tagged with
+ *  the heading/section it falls under, so chunking can respect real document structure
+ *  and each chunk can carry its own topical context. */
+export interface ContentBlock {
+  headingPath: string[];
+  text: string;
+}
+
 export interface AppDocument {
   id: string;
   name: string;
   content: string;
+  blocks: ContentBlock[];
   type: DocType;
   category: DocCategory;
   sizeChars: number;
@@ -19,6 +28,7 @@ export interface RetrievedChunk {
   text: string;
   source: string;
   score: number;
+  headingPath?: string[];
 }
 
 export interface TokenUsage {

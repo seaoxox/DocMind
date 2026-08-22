@@ -3,6 +3,7 @@ export interface StoredChunk {
   text: string;
   source: string;
   embedding: number[];
+  headingPath: string[];
 }
 
 const DB_NAME = 'docmind-vector-store';

@@ -98,6 +98,11 @@ export function IndexDetailsModal({ open, onClose, onRebuild }: Props) {
                           {s.chunkCount} 段落
                         </span>
                       </div>
+                      {s.sampleHeadingPath.length > 0 && (
+                        <p className="text-[10px] text-indigo-500 dark:text-indigo-400 font-medium mb-1 truncate">
+                          章節：{s.sampleHeadingPath.join(' > ')}
+                        </p>
+                      )}
                       <p className="text-xs text-slate-500 dark:text-slate-400 italic line-clamp-2">「{s.sampleText}…」</p>
                       <p className="text-[9px] text-slate-300 dark:text-slate-600 mt-1.5 font-mono">
                         向量維度：{s.embeddingDims}

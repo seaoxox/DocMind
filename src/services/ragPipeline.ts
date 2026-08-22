@@ -1,5 +1,5 @@
 import type { AppDocument, Manifest, RetrievedChunk } from '../types';
-import { chunkDocuments } from './chunking';
+import { chunkDocuments, toEmbeddingText } from './chunking';
 import { embedQuery, embedTexts, type EmbeddingProgress } from './embeddingService';
 import { clearChunks, countChunks, getAllChunks, getMeta, putChunks, setMeta, type StoredChunk } from './vectorStore';
 import { uid } from '../lib/utils';
@@ -73,7 +73,7 @@ export async function ensureIndex(
 
   try {
     await clearChunks();
-    const chunks = chunkDocuments(docs.map((d) => ({ content: d.content, name: d.name })));
+    const chunks = chunkDocuments(docs.map((d) => ({ blocks: d.blocks, name: d.name })));
 
     if (chunks.length === 0) {
       if (fingerprint !== null) await setMeta(FINGERPRINT_KEY, fingerprint);
@@ -91,7 +91,7 @@ export async function ensureIndex(
       const currentSource = Array.from(batchSourceCounts.entries()).sort((a, b) => b[1] - a[1])[0]?.[0];
 
       const vectors = await embedTexts(
-        batch.map((c) => c.text),
+        batch.map((c) => toEmbeddingText(c)),
         (p: EmbeddingProgress) => {
           // Model download progress (first run only) reported as 0-100 per file;
           // we surface it as part of the same "embedding" phase for simplicity.
@@ -105,6 +105,7 @@ export async function ensureIndex(
         text: c.text,
         source: c.source,
         embedding: vectors[idx],
+        headingPath: c.headingPath,
       }));
       stored.push(...newlyStored);
       await putChunks(newlyStored);
@@ -144,6 +145,7 @@ export async function search(query: string, topK: number = TOP_K): Promise<Retri
     .map((c) => ({
       text: c.text,
       source: c.source,
+      headingPath: c.headingPath,
       score: cosineSimilarity(queryVec, c.embedding),
     }))
     .sort((a, b) => b.score - a.score);
@@ -177,6 +179,7 @@ export interface IndexSourceSummary {
   source: string;
   chunkCount: number;
   sampleText: string;
+  sampleHeadingPath: string[];
   embeddingDims: number;
 }
 
@@ -202,6 +205,7 @@ export async function getIndexSummary(): Promise<IndexSummary> {
       source,
       chunkCount: list.length,
       sampleText: list[0]?.text.slice(0, 160) ?? '',
+      sampleHeadingPath: list[0]?.headingPath ?? [],
       embeddingDims: list[0]?.embedding.length ?? 0,
     }))
     .sort((a, b) => a.source.localeCompare(b.source));

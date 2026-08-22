@@ -28,7 +28,12 @@ Formatting Rules:
 }`;
 
 export function buildContext(chunks: RetrievedChunk[]): string {
-  return chunks.map((c) => `[Document: ${c.source}]\n${c.text}`).join('\n\n---\n\n');
+  return chunks
+    .map((c) => {
+      const headingLine = c.headingPath && c.headingPath.length > 0 ? `\n[Section: ${c.headingPath.join(' > ')}]` : '';
+      return `[Document: ${c.source}]${headingLine}\n${c.text}`;
+    })
+    .join('\n\n---\n\n');
 }
 
 export function buildUserPrompt(question: string, chunks: RetrievedChunk[]): string {
